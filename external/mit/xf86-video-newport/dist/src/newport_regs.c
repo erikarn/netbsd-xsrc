@@ -112,13 +112,38 @@ NewportXmap9FifoWait(NewportRegsPtr pNewportRegs, unsigned long xmapChip)
 	}
 }
 
+/*
+ * Configure the XMAP9 Mode Register at DID address 'address'.
+ *
+ * The default, "fast", isn't suitable for 1024x768x60Hz,
+ * the default resolution for the Indy if there's no recognised
+ * monitor.
+ */
 void
-NewportXmap9SetModeRegister(NewportRegsPtr pNewportRegs, CARD8 address, CARD32 mode)
+NewportXmap9SetModeRegister(NewportPtr pNewport, CARD8 address, CARD32 mode)
 {
+	NewportRegsPtr pNewportRegs = pNewport->pNewportRegs;
+	uint32_t timing;
+
 	NewportXmap9FifoWait( pNewportRegs, DCB_XMAP0);
 	NewportXmap9FifoWait( pNewportRegs, DCB_XMAP1);
 
-	pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | W_DCB_XMAP9_PROTOCOL |
+	switch (pNewport->XmapTiming) {
+	case XmapTimingFast:
+		timing = WFAST_DCB_XMAP9_PROTOCOL;
+		break;
+	case XmapTimingSlow:
+		timing = WSLOW_DCB_XMAP9_PROTOCOL;
+		break;
+	case XmapTimingVerySlow:
+		timing = WAYSLOW_DCB_XMAP9_PROTOCOL;
+		break;
+	default:
+		timing = WFAST_DCB_XMAP9_PROTOCOL;
+		break;
+	}
+
+	pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | timing |
 			XM9_CRS_MODE_REG_DATA | NPORT_DMODE_W4 );
 	pNewportRegs->set.dcbdata0.all = (address << 24) | ( mode & 0xffffff );
 }
@@ -215,7 +240,7 @@ void NewportRestoreXmap9s( ScrnInfoPtr pScrn)
 	NewportRegsPtr pNewportRegs = NEWPORTREGSPTR(pScrn);
 
 	/* mode register 0 */
-	NewportXmap9SetModeRegister( pNewportRegs , 0, pNewport->txt_xmap9_mod0 );
+	NewportXmap9SetModeRegister( pNewport, 0, pNewport->txt_xmap9_mod0 );
 	NewportBfwait(pNewport->pNewportRegs);
 	/* mode index register */
 	pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | W_DCB_XMAP9_PROTOCOL |
