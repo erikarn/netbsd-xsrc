@@ -973,6 +973,11 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
     paty &= 7;
     while (h--)
     {
+        /*
+         * TODO: the more optimal way of doing this is to track how many
+         * slots are available in the FIFO and write those many, then
+         * check the FIFO again.
+         */
 	for (d = (w + 31) >> 5; d; d--)
 	{
 	    NewportWaitGFIFO(pNewport, 1);
@@ -993,6 +998,11 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
     p = 0;
     while (h--)
     {
+        /*
+         * TODO: the more optimal way of doing this is to track how many
+         * slots are available in the FIFO and write those many, then
+         * check the FIFO again.
+         */
 	for (d = (w + 31) >> 5; d; d--)
 	{
 	    NewportWaitGFIFO(pNewport, 1);
@@ -1224,6 +1234,11 @@ NewportPolyPoint(DrawablePtr pDraw,
 	    x = pDraw->x + ppt->x;
 	    y = pDraw->y + ppt->y;
 	}
+	/*
+         * TODO: the more optimal way of doing this is to track how many
+         * slots are available in the FIFO and write those many, then
+         * check the FIFO again.
+         */
 	for (rect = 0; rect < numRects; rect++)
 	    if (x >= pbox[rect].x1 && x < pbox[rect].x2
 	        && y >= pbox[rect].y1 && y < pbox[rect].y2)
@@ -1496,11 +1511,17 @@ NewportRenderTexture1to1(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     
     p = pNewport->pTexture + srcx + (srcy * pNewport->uTextureWidth);
     add = pNewport->uTextureWidth - w + srcx;
+
+    /*
+     * TODO: the more optimal way of doing this is to track how many
+     * slots are available in the FIFO and write those many, then
+     * check the FIFO again.
+     */
     while (h--) 
     {
 	for (d = w; d; d--)
 	{
-	    /*NewportWaitGFIFO(pNewport, 1);*/
+	    NewportWaitGFIFO(pNewport, 1);
 	    /* hopefully we cannot write faster than XL24 can blend */
 	    pNewportRegs->go.hostrw0 = *p++;
 	}
@@ -1539,6 +1560,7 @@ NewportRenderTextureScale(NewportPtr pNewport, int srcx, int srcy, int w, int h)
 	    p = (curx + 0x7FFF) >> 16;
 	    if (p >= pNewport->uTextureWidth)
 		p = pNewport->uTextureWidth-1;
+	    /* TODO: does this need a FIFO check? */
 	    pNewportRegs->go.hostrw0 = pLine[p];		
 	    curx += dx;
 	}
@@ -1560,11 +1582,18 @@ NewportRenderTextureRepeat(NewportPtr pNewport, int srcx, int srcy, int w, int h
     srcx %= pNewport->uTextureWidth;
     srcy %= pNewport->uTextureHeight;
     
+
+    /*
+     * TODO: the more optimal way of doing this is to track how many
+     * slots are available in the FIFO and write those many, then
+     * check the FIFO again.
+     */
     while (h--)
     {	
 	pLine = pNewport->pTexture + pNewport->uTextureWidth * srcy;
 	for (d = w; d; d--)
 	{
+	    NewportWaitGFIFO(pNewport, 1);
 	    pNewportRegs->go.hostrw0 = pLine[srcx];
 	    srcx++;
 	    if (srcx >= pNewport->uTextureWidth)
@@ -1694,6 +1723,10 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	pXAAInfoRec->SetupForCPUToScreenColorExpandFill	= NewportXAASetupForCPUToScreenColorExpandFill;
 	pXAAInfoRec->SubsequentCPUToScreenColorExpandFill = NewportXAASubsequentCPUToScreenColorExpandFill;
 	pXAAInfoRec->ColorExpandRange = 4;
+	/*
+	 * TODO: is this OK? There's no FIFO check here, is it possible
+	 * that we'd fill the GFIFO and bus error?
+	 */
 	pXAAInfoRec->ColorExpandBase = (unsigned char *)&(pNewportRegs->go.zpattern);
 
 
@@ -1722,6 +1755,10 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	pXAAInfoRec->SetupForImageWrite = NewportXAASetupForImageWrite;
 	pXAAInfoRec->SubsequentImageWriteRect = NewportXAASubsequentImageWriteRect;
 	pXAAInfoRec->ImageWriteRange = 4;
+	/*
+	 * TODO: is this OK? There's no FIFO check here, is it possible
+	 * that we'd fill the GFIFO and bus error?
+	 */
 	pXAAInfoRec->ImageWriteBase =  (unsigned char *)&(pNewportRegs->go.hostrw0);
 
 	/* read pixmap */
