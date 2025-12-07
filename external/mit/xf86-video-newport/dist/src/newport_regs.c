@@ -166,7 +166,7 @@ NewportXmap9GetModeRegister(NewportRegsPtr pNewportRegs, unsigned chip, CARD8 ad
 		pNewportRegs->set.dcbmode = ( dcbaddr | W_DCB_XMAP9_PROTOCOL |
 				XM9_CRS_MODE_REG_INDEX | NPORT_DMODE_W1 );
 		pNewportRegs->set.dcbdata0.bytes.b3 = (index | i);
-		pNewportRegs->set.dcbmode = ( dcbaddr | W_DCB_XMAP9_PROTOCOL |
+		pNewportRegs->set.dcbmode = ( dcbaddr | R_DCB_XMAP9_PROTOCOL |
 				XM9_CRS_MODE_REG_DATA | NPORT_DMODE_W1 );
 		val = pNewportRegs->set.dcbdata0.bytes.b3;
 		mode |= (val << ( i * 8 ) );
