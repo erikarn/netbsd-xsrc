@@ -160,6 +160,8 @@ unsigned short NewportVc2Get(NewportRegsPtr, unsigned char vc2Ireg);
 void NewportVc2Set(NewportRegsPtr pNewportRegs, unsigned char vc2Ireg, unsigned short val);
 void NewportWait(NewportRegsPtr pNewportRegs);
 void NewportBfwait(NewportRegsPtr pNewportRegs);
+void NewportXmap9WriteRegister(NewportRegsPtr pNewportRegs, unsigned dcbaddr, unsigned dcbreg, CARD8 value);
+CARD8 NewportXmap9ReadRegister(NewportRegsPtr pNewportRegs, unsigned dcbaddr, unsigned dcbreg);
 void NewportXmap9SetModeRegister(NewportPtr pNewport, CARD8 address, CARD32 mode);
 CARD32 NewportXmap9GetModeRegister(NewportRegsPtr pNewportRegs, unsigned chip, CARD8 address);
 void NewportBackupRex3( ScrnInfoPtr pScrn);
