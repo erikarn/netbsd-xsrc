@@ -166,7 +166,8 @@ typedef enum {
 	OPTION_BITPLANES,
 	OPTION_BUS_ID,
 	OPTION_HWCURSOR,
-	OPTION_NOACCEL
+	OPTION_NOACCEL,
+	OPTION_XMAP_TIMING,
 } NewportOpts;
 
 /* Supported options */
@@ -175,6 +176,7 @@ static const OptionInfoRec NewportOptions [] = {
 	{ OPTION_BUS_ID, "BusID", OPTV_INTEGER, {0}, FALSE },
 	{ OPTION_HWCURSOR, "HWCursor", OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_XMAP_TIMING, "XmapTiming", OPTV_INTEGER, {0}, FALSE },
 	{ -1, NULL, OPTV_NONE, {0}, FALSE }
 };
 
@@ -500,6 +502,55 @@ NewportPreInit(ScrnInfoPtr pScrn, int flags)
 Bool
 NewportXAAScreenInit(ScreenPtr pScreen);
 
+/*
+ * Parse the xmap timing option if it exists.
+ *
+ * Return true if it's valid, false if it's invalid.
+ * If it's not present then return true; this is to signal
+ * if the caller should quit the driver setup path.
+ */
+static Bool
+NewportOptionXmapConfig(ScrnInfoPtr pScrn, NewportPtr pNewport)
+{
+	int t;
+
+	/* Initialise / parse the Xmap timing type */
+	pNewport->XmapTiming = XmapTimingUnset;
+
+	if (xf86GetOptValInteger(pNewport->Options, OPTION_XMAP_TIMING, &t)) {
+		switch (t) {
+		case XmapTimingFast:
+			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+			    "No XmapTiming set to FAST\n");
+			pNewport->XmapTiming = t;
+			break;
+		case XmapTimingSlow:
+			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+			    "No XmapTiming set to SLOW\n");
+			pNewport->XmapTiming = t;
+			break;
+		case XmapTimingVerySlow:
+			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+			    "No XmapTiming set to VERYSLOW\n");
+			pNewport->XmapTiming = t;
+			break;
+		default:
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			    "XmapTiming value (%d) is not valid!\n", t);
+			return FALSE;
+		}
+	}
+
+	/* Default to "fast" for now, preserve existing behaviour */
+	if (pNewport->XmapTiming == XmapTimingUnset) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "No XmapTiming provided; defaulting to FAST\n");
+		pNewport->XmapTiming = XmapTimingFast;
+	}
+
+	return TRUE;
+}
+
 
 static Bool 
 NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
@@ -574,6 +625,11 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	xf86SetBackingStore(pScreen);
 
 	xf86SetBlackWhitePixels(pScreen);
+
+	/* Parse the xmap config */
+	if (! NewportOptionXmapConfig(pScrn, pNewport))
+		return FALSE;
+
 #ifdef NEWPORT_ACCEL
 	pNewport->NoAccel = FALSE;
 	if (xf86ReturnOptValBool(pNewport->Options, OPTION_NOACCEL, FALSE)) 
@@ -783,7 +839,7 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 		mode = XM9_MREG_PIX_SIZE_24BPP | XM9_MREG_PIX_MODE_RGB2
 				| XM9_MREG_GAMMA_BYPASS;
 		for (i = 0; i < 32; i++)
-			NewportXmap9SetModeRegister( pNewportRegs , i, mode);
+			NewportXmap9SetModeRegister(pNewport, i, mode);
 
 		/* select the set up mode register */
 		NewportBfwait(pNewport->pNewportRegs);
