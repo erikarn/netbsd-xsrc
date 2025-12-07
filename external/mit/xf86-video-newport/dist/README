@@ -71,6 +71,11 @@
 
   o  NoAccel - disable Acceleration Options
 
+  o  XmapTiming - Set the XMAP9 Mode Timing - 1 for Fast, 2 for Slow,
+     3 for Very Slow.  Since the driver currently doesn't parse all of
+     the monitor information, you may need to set the Timing to 2
+     (ie Slow) for 1024x760 60Hz operation.  Very Slow is likely for
+     NTSC/PAL timings which we currently don't have a way to configure.
 
   5.  Authors
 
