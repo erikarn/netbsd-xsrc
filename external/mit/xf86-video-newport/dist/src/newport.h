@@ -64,11 +64,29 @@ typedef enum {
 	XmapTimingVerySlow = 3,
 } XmapTimingType;
 
+/*
+ * Newport pixel configuration.
+ *
+ * This represents both input and output pixel configuration
+ * types.  It's used for figuring out how to program the hardware.
+ */
+typedef enum {
+	NewportBppUnset = 0,
+
+	/* Single buffered pixel configurations */
+	NewportBppRgb24 = 1,
+	NewportBppRgb12 = 2,
+	NewportBppRgb8 = 3,
+	NewportBppCi8 = 4,
+} NewportBppConfig;
+
 typedef struct {
 	unsigned busID;
 	int bitplanes; 
 	XmapTimingType XmapTiming;	/* which xmap9 timing to use */
 	Bool NoAccel;			/* TRUE = disable acceleration */
+	NewportBppConfig curNewportOutputBppCfg; /* What's being piped out to xmap9 */
+	NewportBppConfig curNewportInputBppCfg; /* What's being fed into HOSTRW */
 	/* revision numbers of the various pieces of silicon */
 	unsigned int board_rev, cmap_rev, rex3_rev, xmap9_rev, bt445_rev;
 	/* shadow copies of frequently used registers */
