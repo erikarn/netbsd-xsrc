@@ -1668,6 +1668,7 @@ NewportRenderTextureScale(NewportPtr pNewport, int srcx, int srcy, int w, int h)
 	    if (p >= pNewport->uTextureWidth)
 		p = pNewport->uTextureWidth-1;
 	    /* TODO: does this need a FIFO check? */
+	    NewportWaitGFIFO(pNewport, 1);
 	    pNewportRegs->go.hostrw0 = pLine[p];		
 	    curx += dx;
 	}
