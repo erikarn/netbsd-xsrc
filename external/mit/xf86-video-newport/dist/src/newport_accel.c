@@ -115,6 +115,21 @@ NewportWaitGFIFO(NewportPtr pNewport, unsigned int uEntries)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Wait until 'uEntries' are available in the GFIFO.
+ *
+ * This tracks how many entries are in the fifo via the
+ * fifoleft value, and will avoid reading the FIFO itself
+ * if it estimates enough entries are left in the FIFO.
+ * Once the estimate runs out, it will update the
+ * number of FIFO entries available.
+ *
+ * TODO: add some counters here; it'd be nice to know
+ * how often the prediction works, how often we ran out
+ * and needed to read the GFIFO register, how often we
+ * had to spin waiting.
+ */
 static void
 NewportWaitGFIFO(NewportPtr pNewport, unsigned int uEntries)
 {
@@ -149,7 +164,14 @@ NewportWaitGFIFO(NewportPtr pNewport, unsigned int uEntries)
 	    pNewport->fifoleft -= uEntries;
 	    return;
         }
-	
+
+	/*
+	 * This is a CPU busy loop which is not the most efficient
+	 * use of CPU, especially if the X server is multi-threaded.
+	 *
+	 * TODO: attempt to keep counters here; it'd be nice to know
+	 * how often this is being hit.
+	 */
 	for (x = 0, i = 0; i < NEWPORT_DELAY; i++)
 	{
 	    x += i;
@@ -254,14 +276,6 @@ NewportColor2HOSTRW(unsigned int color)
  * (framebuffer formats.) It's an interleaved pixel format,
  * starting at the MSB (bit 23), going BRG(0), BRG(1), BRG(2) ..
  * BRG(7).
- *
- * TODO: is this needed? How is the write mask applied when
- * updating pixels?  This seems like overkill in most cases
- * when the drawmode op / colour is set to just set the colour
- * directly?  See REX3 Section 3.3 (Clipping and Masking);
- * for normal pixel ops we can just use the raw mask, but for
- * double buffering, AUX planes, we'd want to be more
- * specific in how/what we write.)
  */
 static unsigned int
 NewportColor2Planes24RGB(unsigned int color)
@@ -344,6 +358,13 @@ NewportUpdateCOLORI(NewportPtr pNewport, unsigned long colori)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the DRAWMODE0 register.
+ *
+ * TODO: does this register stall the pipeline?  The REX3 documentation
+ * is unclear.
+ */
 static void
 NewportUpdateDRAWMODE0(NewportPtr pNewport, unsigned long drawmode0)
 {
@@ -359,6 +380,14 @@ NewportUpdateDRAWMODE0(NewportPtr pNewport, unsigned long drawmode0)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the DRAWMODE1 register.
+ *
+ * This register stalls the pipeline until clear when written to.
+ *
+ * TODO: should update GFIFO depth when this is written to!
+ */
 static void
 NewportUpdateDRAWMODE1(NewportPtr pNewport, unsigned long drawmode1)
 {
@@ -373,6 +402,14 @@ NewportUpdateDRAWMODE1(NewportPtr pNewport, unsigned long drawmode1)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the COLORVRAM register.
+ *
+ * This register stalls the pipeline until clear when written to.
+ *
+ * TODO: should update GFIFO depth when this is written to!
+ */
 static void
 NewportUpdateCOLORVRAM(NewportPtr pNewport, unsigned long colorvram)
 {
@@ -387,6 +424,14 @@ NewportUpdateCOLORVRAM(NewportPtr pNewport, unsigned long colorvram)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the COLORBACK register.
+ *
+ * This register stalls the pipeline until clear when written to.
+ *
+ * TODO: should update GFIFO depth when this is written to!
+ */
 static void
 NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
 {
@@ -401,6 +446,14 @@ NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the WRMASK register.
+ *
+ * This register stalls the pipeline until clear when written to.
+ *
+ * TODO: should update GFIFO depth when this is written to!
+ */
 static void
 NewportUpdateWRMASK(NewportPtr pNewport, unsigned long wrmask)
 {
@@ -415,6 +468,14 @@ NewportUpdateWRMASK(NewportPtr pNewport, unsigned long wrmask)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Update the XYMOVE register.
+ *
+ * This register stalls the pipeline until clear when written to.
+ *
+ * TODO: should update GFIFO depth when this is written to!
+ */
 static void
 NewportUpdateXYMOVE(NewportPtr pNewport, unsigned long xymove)
 {
@@ -597,6 +658,10 @@ NewportXAASubsequentSolidFillRect(ScrnInfoPtr pScrn,
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Setup for a Solid Line draw
+ */
 static void
 NewportXAASetupForSolidLine(ScrnInfoPtr pScrn,
                             int Color,
@@ -626,6 +691,18 @@ NewportXAASetupForSolidLine(ScrnInfoPtr pScrn,
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Draw a solid line
+ *
+ * TODO: surely the XAA server is feeding us a list of lines
+ * to write, rather than a constant setup/line/setup/line etc.
+ * See xaa/xaaLine.c for more info.
+ *
+ * Apparently if POLYSEGMENT is defined then we get a flag
+ * that says whether to draw the last pixel or not, but it's
+ * not really a "this is the last line to batch".
+ */
 static void
 NewportXAASubsequentSolidTwoPointLine(ScrnInfoPtr pScrn,
                                       int x1,
@@ -638,7 +715,11 @@ NewportXAASubsequentSolidTwoPointLine(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
+    /*
+     * TODO: if this doesn't stall the pipeline then it makes sense
+     * that we can keep changing drawmode0 on each line draw.
+     */
     NewportUpdateDRAWMODE0(pNewport, 
                            pNewport->setup_drawmode0
 			   | ((flags & OMIT_LAST) ? NPORT_DMODE0_SKLST : 0)
@@ -1012,11 +1093,6 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
     paty &= 7;
     while (h--)
     {
-        /*
-         * TODO: the more optimal way of doing this is to track how many
-         * slots are available in the FIFO and write those many, then
-         * check the FIFO again.
-         */
 	for (d = (w + 31) >> 5; d; d--)
 	{
 	    NewportWaitGFIFO(pNewport, 1);
@@ -1037,11 +1113,6 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
     p = 0;
     while (h--)
     {
-        /*
-         * TODO: the more optimal way of doing this is to track how many
-         * slots are available in the FIFO and write those many, then
-         * check the FIFO again.
-         */
 	for (d = (w + 31) >> 5; d; d--)
 	{
 	    NewportWaitGFIFO(pNewport, 1);
@@ -1198,6 +1269,13 @@ NewportXAADisableClipping(ScrnInfoPtr pScrn)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * TODO: it would be good to keep some counters on how large
+ * the average/min/max fill is and how many points are passed
+ * in; that'd give us a good idea as to whether these would
+ * benefit by being turned into DMA and save some CPU resources.
+ */
 static void
 NewportPolyPoint(DrawablePtr pDraw,
                  GCPtr pGC,
@@ -1273,11 +1351,6 @@ NewportPolyPoint(DrawablePtr pDraw,
 	    x = pDraw->x + ppt->x;
 	    y = pDraw->y + ppt->y;
 	}
-	/*
-         * TODO: the more optimal way of doing this is to track how many
-         * slots are available in the FIFO and write those many, then
-         * check the FIFO again.
-         */
 	for (rect = 0; rect < numRects; rect++)
 	    if (x >= pbox[rect].x1 && x < pbox[rect].x2
 	        && y >= pbox[rect].y1 && y < pbox[rect].y2)
@@ -1551,11 +1624,6 @@ NewportRenderTexture1to1(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     p = pNewport->pTexture + srcx + (srcy * pNewport->uTextureWidth);
     add = pNewport->uTextureWidth - w + srcx;
 
-    /*
-     * TODO: the more optimal way of doing this is to track how many
-     * slots are available in the FIFO and write those many, then
-     * check the FIFO again.
-     */
     while (h--) 
     {
 	for (d = w; d; d--)
@@ -1622,11 +1690,6 @@ NewportRenderTextureRepeat(NewportPtr pNewport, int srcx, int srcy, int w, int h
     srcy %= pNewport->uTextureHeight;
     
 
-    /*
-     * TODO: the more optimal way of doing this is to track how many
-     * slots are available in the FIFO and write those many, then
-     * check the FIFO again.
-     */
     while (h--)
     {	
 	pLine = pNewport->pTexture + pNewport->uTextureWidth * srcy;
