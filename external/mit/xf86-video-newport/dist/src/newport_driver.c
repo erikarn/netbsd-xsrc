@@ -808,6 +808,27 @@ NewportSetXmapModeTable(NewportPtr pNewport, uint32_t mode)
 	    XM9_CRS_MODE_REG_INDEX, 0);
 }
 
+/*
+ * Setup the XMAP9 for the given requested operating mode.
+ *
+ * For now it's a no-op, but eventually it should explicitly configure
+ * 8 or 24 bit mode depending upon the requested config and supported
+ * hardware.
+ */
+static void
+NewportHwSetupXmapMode(NewportPtr pNewport)
+{
+#if 0
+		/* TODO: refactor this out; program them separately to not mess with odd/even dithering! */
+		NewportBfwait(pNewport->pNewportRegs);
+
+		pNewportRegs->set.dcbmode = (DCB_XMAP_ALL |
+		    W_DCB_XMAP9_PROTOCOL | XM9_CRS_CONFIG | NPORT_DMODE_W1 );
+		pNewportRegs->set.dcbdata0.bytes.b3 &=
+		    ~(XM9_8_BITPLANES | XM9_PUPMODE);
+#endif
+}
+
 /* This sets up the actual mode on the Newport */
 static Bool 
 NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
@@ -840,6 +861,10 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 				NPORT_DMODE1_CCEQ | 
 				NPORT_DMODE1_CCGT | 
 				NPORT_DMODE1_LOSRC;
+
+	/* Configure the XMAP mode */
+	NewportHwSetupXmapMode(pNewport);
+
 	if( pNewport->Bpp == 1) { /* 8bpp */
 		/*
 		 * Configure 8 bit draw depth, 8 bit host pixel packing.
@@ -862,14 +887,6 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 		CARD32 mode = 0L;
 
 		/* tell the xmap9s that we are using 24bpp */
-
-		/* TODO: refactor this out; program them separately to not mess with odd/even dithering! */
-		NewportBfwait(pNewport->pNewportRegs);
-
-		pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | 
-		    W_DCB_XMAP9_PROTOCOL | XM9_CRS_CONFIG | NPORT_DMODE_W1 );
-		pNewportRegs->set.dcbdata0.bytes.b3 &= 
-		    ~(XM9_8_BITPLANES | XM9_PUPMODE);
 
 		/*
 		 * Setup the mode table for RGB 888 (24 bit), use the
@@ -1014,7 +1031,7 @@ static Bool NewportProbeCardInfo(ScrnInfoPtr pScrn)
 	pNewport->cmap_rev = (char)('A'+(cmap_rev ? (cmap_rev+1):0));
 	pNewport->rex3_rev = (char)('A'+(pNewportRegs->cset.ustat & 7));
 	val = NewportXmap9ReadRegister(pNewportRegs, DCB_XMAP0, XM9_CRS_REVISION);
-	xmap9_rev = (char)('A'+(val & 7));
+	pNewport->xmap9_rev = (char)('A'+(val & 7));
 	
 	/* XXX: read possible modes from VC2 here */
 	return TRUE;
