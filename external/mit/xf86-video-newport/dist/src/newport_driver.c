@@ -285,6 +285,44 @@ NewportProbe(DriverPtr drv, int flags)
 	return foundScreen;
 }
 
+static Bool
+NewportHwConfigChooseBppConfig(ScrnInfoPtr pScrn, NewportPtr pNewport)
+{
+	/*
+	 * For RGB, support RGB 888 (24 bit), RGB 444 (12 bit).
+	 * For CI, support 8 bit CI only.
+	 *
+	 * Newport can do the dithering for 24 and 12 bit into
+	 * RGB8, and or 8 bit we will only support CI (until
+	 * I discover X11 will allow RGB332 or something..)
+	 *
+	 * TODO: add a dither bool in the config to use
+	 */
+	switch (pScrn->depth) {
+	case 24:
+		pNewport->curNewportInputBppCfg = NewportBppRgb24;
+		if (pNewport->bitplanes == 8)
+			pNewport->curNewportOutputBppCfg = NewportBppRgb8;
+		else
+			pNewport->curNewportOutputBppCfg = NewportBppRgb24;
+		break;
+	case 12:
+		pNewport->curNewportInputBppCfg = NewportBppRgb12;
+		if (pNewport->bitplanes == 8)
+			pNewport->curNewportOutputBppCfg = NewportBppRgb8;
+		else
+			pNewport->curNewportOutputBppCfg = NewportBppRgb24;
+		break;
+	case 8:
+		pNewport->curNewportInputBppCfg = NewportBppCi8;
+		pNewport->curNewportOutputBppCfg = NewportBppCi8;
+		break;
+	default:
+		return FALSE;
+	}
+	return TRUE;
+}
+
 /* most of this is from DESIGN.TXT s20.3.6 */
 static Bool 
 NewportPreInit(ScrnInfoPtr pScrn, int flags)
@@ -406,12 +444,28 @@ NewportPreInit(ScrnInfoPtr pScrn, int flags)
 	xf86DrvMsg(pScrn->scrnIndex, from, "Newport has %d bitplanes\n", 
 	    pNewport->bitplanes);
 
+	/*
+	 * Given the screen depth and newport config, figure out
+	 * what pixel format is possible.
+	 */
+	if (! NewportHwConfigChooseBppConfig(pScrn, pNewport)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR, \
+		    "Couldn't find a pixel format for display depth (%d) "
+		    "versus Newport bitplanes (%d)\n",
+		    pScrn->depth, pNewport->bitplanes);
+		return FALSE;
+	}
+
+#if 0
+	/* TODO: eventually nuke this */
 	if ( pScrn->depth > pNewport->bitplanes ) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR, \
 			"Display depth(%d) > number of bitplanes on Newport board(%d)\n", \
 			pScrn->depth, pNewport->bitplanes);
 		return FALSE;
 	}
+#endif
+
 	if ( ( pNewport->bitplanes != 8 ) && ( pNewport->bitplanes != 24 ) ) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR, \
 			"Number of bitplanes on newport must be either 8 or 24 not %d\n", \
@@ -579,8 +633,9 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	
 	miSetPixmapDepths ();
 
-	pNewport->Bpp = pScrn->bitsPerPixel >> 3;
+	/* Note: pNewport->bpp is the shadow output bytes per pixel */
 	/* Setup the stuff for the shadow framebuffer */
+	pNewport->Bpp = pScrn->bitsPerPixel >> 3;
 	pNewport->ShadowPitch = (( pScrn->virtualX * pNewport->Bpp ) + 3) & ~3L;
 	pNewport->ShadowPtr = xnfalloc(pNewport->ShadowPitch * pScrn->virtualY);
 
@@ -865,14 +920,93 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 	/* Configure the XMAP mode */
 	NewportHwSetupXmapMode(pNewport);
 
-	if( pNewport->Bpp == 1) { /* 8bpp */
+	/*
+	 * Configure the default drawmode, xmap9 mode and palette
+	 * config based on input and output pixel formats.
+	 */
+	switch (pNewport->curNewportOutputBppCfg) {
+	case NewportBppRgb24:
+		/*
+		 * For now just support 24 bit input/output; it should
+		 * be easy to change this once the rest of the code
+		 * has been updated.
+		 */
+		if (pNewport->curNewportInputBppCfg != NewportBppRgb24) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			    "%s: unsupported InputBppCfg mode (%d) for "
+			    "24 bit RGB output\n",
+			    __func__,
+			    pNewport->curNewportInputBppCfg);
+			return FALSE;
+		}
+
+		/*
+		 * Configure RGB mode, 24 bit output, 8888 RGBA packed
+		 * RGB mode
+		 */
+		pNewport->drawmode1 |= NPORT_DMODE1_RGBMD |
+		    NPORT_DMODE1_DD24 | NPORT_DMODE1_HD32 |
+		    NPORT_DMODE1_RWPCKD;
+
+		/*
+		 * Setup the mode table for RGB 888 (24 bit), use the
+		 * RGB2 CMAP table.
+		 */
+		NewportSetXmapModeTable(pNewport, XM9_MREG_PIX_SIZE_24BPP
+		    | XM9_MREG_PIX_MODE_RGB2 | XM9_MREG_GAMMA_BYPASS);
+
+		break;
+	case NewportBppRgb8:
+		/*
+		 * Configure RGB mode, 8 bit output, input is always packed
+		 */
+		pNewport->drawmode1 |= NPORT_DMODE1_RGBMD |
+		    NPORT_DMODE1_DD8 | NPORT_DMODE1_RWPCKD;
+
+		/* Enable dithering */
+		pNewport->drawmode1 |= NPORT_DMODE1_DENAB;
+
+		/* Configure the appropriate input based on 8, 12, 24 bit */
+		if (pNewport->curNewportInputBppCfg == NewportBppRgb24)
+			pNewport->drawmode1 |= NPORT_DMODE1_HD32;
+		else if (pNewport->curNewportInputBppCfg == NewportBppRgb12)
+			pNewport->drawmode1 |= NPORT_DMODE1_HD12;
+		else if (pNewport->curNewportInputBppCfg == NewportBppRgb8)
+			pNewport->drawmode1 |= NPORT_DMODE1_HD8;
+		else {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			    "%s: unsupported InputBppCfg mode (%d) for "
+			    "rgb8 output\n",
+			    __func__,
+			    pNewport->curNewportInputBppCfg);
+			return FALSE;
+		}
+
+		/*
+		 * Setup the mode table for RGB 332 (8 bit), use the
+		 * RGB2 CMAP table.
+		 */
+		NewportSetXmapModeTable(pNewport, XM9_MREG_PIX_SIZE_8BPP
+		    | XM9_MREG_PIX_MODE_RGB2 | XM9_MREG_GAMMA_BYPASS);
+
+		break;
+
+	case NewportBppCi8:
+		if (pNewport->curNewportInputBppCfg != NewportBppCi8) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			    "%s: unsupported InputBppCfg mode (%d) for "
+			    "8 bit PseudoColour output\n",
+			    __func__,
+			    pNewport->curNewportInputBppCfg);
+			return FALSE;
+		}
 		/*
 		 * Configure 8 bit draw depth, 8 bit host pixel packing.
 		 * Note that RGB mode isn't enabled here because
 		 * the CI mode is being used.
 		 */
-		pNewport->drawmode1 |=  NPORT_DMODE1_DD8 | 
-					NPORT_DMODE1_HD8 | 
+		pNewport->drawmode1 |=  NPORT_DMODE1_DD8 |
+					NPORT_DMODE1_HD8 |
 					NPORT_DMODE1_RWPCKD;
 
 		/*
@@ -883,35 +1017,13 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 		    XM9_MREG_PIX_SIZE_8BPP | XM9_MREG_PIX_MODE_CI |
 		    XM9_MREG_GAMMA_BYPASS);
 
-	} else { /* 24bpp */
-		CARD32 mode = 0L;
-
-		/* tell the xmap9s that we are using 24bpp */
-
-		/*
-		 * Setup the mode table for RGB 888 (24 bit), use the
-		 * RGB2 CMAP table.
-		 */
-		NewportSetXmapModeTable(pNewport, XM9_MREG_PIX_SIZE_24BPP
-		    | XM9_MREG_PIX_MODE_RGB2 | XM9_MREG_GAMMA_BYPASS);
-
-		pNewport->drawmode1 |= 
-					/* set drawdepth to 24 bit */
-					NPORT_DMODE1_DD24 |
-					/* turn on RGB mode */	
-					NPORT_DMODE1_RGBMD | 
-					/* turn on 8888 = RGBA pixel packing */
-					NPORT_DMODE1_HD32 | NPORT_DMODE1_RWPCKD;
-		/*
-		 * After setting up XMAP9 we have to reinitialize the CMAP for
-		 * whatever reason (the docs say nothing about it). 
-		 */
-		for (i = 0; i < 256; i++) {
-			LOCO col;
-
-			col.red = col.green = col.blue = i;
-			NewportCmapSetRGB(NEWPORTREGSPTR(pScrn), i, col);
-		}
+	default:
+		/* not supported */
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+		    "%s: unsupported OutputBppCfg mode (%d)\n",
+		    __func__,
+		    pNewport->curNewportOutputBppCfg);
+		return FALSE;
 	}
 
 	/*
