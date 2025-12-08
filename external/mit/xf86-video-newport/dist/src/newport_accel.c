@@ -217,6 +217,15 @@ NewportUpdateClipping(NewportPtr pNewport)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Map the XAA colours to the HOSTRW format.
+ *
+ * The HOSTRW format for RGBA-32 is ABGR, A being MSB and
+ * R being LSB.
+ *
+ * See the REX3 specification, Section 3.10 (Framebuffer PIO and DMA.)
+ */
 static unsigned int
 NewportColor2HOSTRW(unsigned int color)
 {
@@ -236,24 +245,48 @@ NewportColor2HOSTRW(unsigned int color)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Map the 24 bit RGB colour into the required framebuffer pixel
+ * layout for 24 bit pixels.
+ *
+ * The pixel format is in the REX3 specification Section 3.9
+ * (framebuffer formats.) It's an interleaved pixel format,
+ * starting at the MSB (bit 23), going BRG(0), BRG(1), BRG(2) ..
+ * BRG(7).
+ *
+ * TODO: is this needed? How is the write mask applied when
+ * updating pixels?  This seems like overkill in most cases
+ * when the drawmode op / colour is set to just set the colour
+ * directly?  See REX3 Section 3.3 (Clipping and Masking);
+ * for normal pixel ops we can just use the raw mask, but for
+ * double buffering, AUX planes, we'd want to be more
+ * specific in how/what we write.)
+ */
 static unsigned int
-NewportColor2Planes24(unsigned int color)
+NewportColor2Planes24RGB(unsigned int color)
 {
     unsigned int res;
     unsigned int i;
     unsigned int mr, mg, mb;
     unsigned int sr, sg, sb;
-    
+
+    res = 0;
+#if 0
+
  /*
   XAA color is 0,R,G,B
  */
- 
-    res = 0;
-#if 0    
+
     mr = 0x800000;
     mg = 0x008000;
     mb = 0x000080;
-#endif    
+#endif
+
+    /*
+     * The XAA format is now BGR, to match the hardware mapping.
+     * However the raw pixel format is not this.
+     */
     mr = 0x000080;
     mg = 0x008000;
     mb = 0x800000;
@@ -281,8 +314,14 @@ NewportColor2Planes24(unsigned int color)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Map the 8 bit colour index to the underlying framebuffer pixel layout.
+ *
+ * For Psuedocolour pixels, this is a 1:1 mapping of bits 7:0.
+ */
 static unsigned int
-NewportColor2Planes8(unsigned int color)
+NewportColor2Planes8CI(unsigned int color)
 {
     return color;
 }
@@ -1787,6 +1826,17 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 
 	pXAAInfoRec->ValidatePolyArc = NewportValidatePolyArc;
 	pXAAInfoRec->PolyArcMask = GCFunction | GCLineWidth;
+
+	/*
+	 * TODO: Revisit this once the rest of the driver is converted to
+	 * properly separate the newport device type / bitplane count versus
+	 * the screen depth.
+	 *
+	 * We're not doing alpha blending on 8bpp screens because
+	 * they're psuedo colour screens, but we CAN do alpha blending
+	 * on an XL8 that's being fed RGB-24 and RGBA-32 pixel data
+	 * via HOSTRW.
+	 */
 #ifdef RENDER
 	if (pScrn->bitsPerPixel > 8) 
 	{
@@ -1806,11 +1856,38 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	    pNewport->pTexture = (unsigned int *)xnfalloc(pNewport->uTextureSize = 16*16*sizeof(unsigned int));
 	}
 #endif	
-	
-	pNewport->Color2Planes = NewportColor2Planes24;
+
+	/*
+	 * Configure acceleration based on the screen config and the
+	 * Newport bitplane config.
+	 *
+	 * The WRMASK register (which this routine is populating) is
+	 * based on the raw framebuffer pixel data being written,
+	 * /not/ specifically the HOSTRW format being written.
+	 * The HOSTRW format can include whether the pixel values
+	 * are packed or not; whereas this field is the raw field
+	 * in the table.
+	 *
+	 * See REX3 specification section 3.3 (Clipping and Masking)
+	 * and 3.9 (Framebuffer formats) for more information.
+	 *
+	 * TODO: this needs to be revisited when configuring other
+	 * framebuffer pixel layouts, eg 24 bit colour writes
+	 * into HOSTRW, but a RGB-332 framebuffer.
+	 *
+	 * In this instance, we'd choose a function based on
+	 * pixel config (eg RGB888, RGB444, RGB332, CI) and
+	 * eventually also the double buffering target plane.
+	 */
+	pNewport->Color2Planes = NewportColor2Planes24RGB;
+	/*
+	 * TODO: this is looking at the screen bpp, it should be changed
+	 * to look at the DRAWDEPTH/PLANES/RWPACKED field and choose
+	 * appropriately.
+	 */
 	if (pScrn->bitsPerPixel == 8)
 	{
-	    pNewport->Color2Planes = NewportColor2Planes8;
+	    pNewport->Color2Planes = NewportColor2Planes8CI;
 	}
 
 	if (!XAAInit(pScreen, pXAAInfoRec))
