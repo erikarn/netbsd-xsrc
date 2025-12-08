@@ -804,9 +804,8 @@ NewportSetXmapModeTable(NewportPtr pNewport, uint32_t mode)
 
 	/* select the set up mode register */
 	NewportBfwait(pNewport->pNewportRegs);
-	pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | W_DCB_XMAP9_PROTOCOL |
-			XM9_CRS_MODE_REG_INDEX | NPORT_DMODE_W1 );
-	pNewportRegs->set.dcbdata0.bytes.b3 = 0;
+	NewportXmap9WriteRegister(pNewportRegs, DCB_XMAP_ALL,
+	    XM9_CRS_MODE_REG_INDEX, 0);
 }
 
 /* This sets up the actual mode on the Newport */
@@ -866,6 +865,7 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 
 		/* TODO: refactor this out; program them separately to not mess with odd/even dithering! */
 		NewportBfwait(pNewport->pNewportRegs);
+
 		pNewportRegs->set.dcbmode = (DCB_XMAP_ALL | 
 		    W_DCB_XMAP9_PROTOCOL | XM9_CRS_CONFIG | NPORT_DMODE_W1 );
 		pNewportRegs->set.dcbdata0.bytes.b3 &= 
@@ -1002,6 +1002,7 @@ static Bool NewportProbeCardInfo(ScrnInfoPtr pScrn)
 	unsigned int tmp,cmap_rev;
 	NewportPtr pNewport = NEWPORTPTR(pScrn);
 	NewportRegsPtr pNewportRegs = pNewport->pNewportRegs;
+	CARD8 val;
 
 	NewportWait(pNewportRegs); 
 	pNewportRegs->set.dcbmode = (DCB_CMAP0 | NCMAP_PROTOCOL |
@@ -1012,10 +1013,8 @@ static Bool NewportProbeCardInfo(ScrnInfoPtr pScrn)
 	cmap_rev = tmp & 7;
 	pNewport->cmap_rev = (char)('A'+(cmap_rev ? (cmap_rev+1):0));
 	pNewport->rex3_rev = (char)('A'+(pNewportRegs->cset.ustat & 7));
-
-	pNewportRegs->set.dcbmode = (DCB_XMAP0 | R_DCB_XMAP9_PROTOCOL |
-					XM9_CRS_REVISION | NPORT_DMODE_W1);
-	pNewport->xmap9_rev = (char)('A'+(pNewportRegs->set.dcbdata0.bytes.b3 & 7));
+	val = NewportXmap9ReadRegister(pNewportRegs, DCB_XMAP0, XM9_CRS_REVISION);
+	xmap9_rev = (char)('A'+(val & 7));
 	
 	/* XXX: read possible modes from VC2 here */
 	return TRUE;
