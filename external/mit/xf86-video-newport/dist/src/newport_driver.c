@@ -575,17 +575,17 @@ NewportOptionXmapConfig(ScrnInfoPtr pScrn, NewportPtr pNewport)
 		switch (t) {
 		case XmapTimingFast:
 			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
-			    "No XmapTiming set to FAST\n");
+			    "XmapTiming set to FAST\n");
 			pNewport->XmapTiming = t;
 			break;
 		case XmapTimingSlow:
 			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
-			    "No XmapTiming set to SLOW\n");
+			    "XmapTiming set to SLOW\n");
 			pNewport->XmapTiming = t;
 			break;
 		case XmapTimingVerySlow:
 			xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
-			    "No XmapTiming set to VERYSLOW\n");
+			    "XmapTiming set to VERYSLOW\n");
 			pNewport->XmapTiming = t;
 			break;
 		default:
