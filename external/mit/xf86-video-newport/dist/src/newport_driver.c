@@ -169,6 +169,7 @@ typedef enum {
 	OPTION_NOACCEL,
 	OPTION_XMAP_TIMING,
 	OPTION_DEBUG_MASK,
+	OPTION_ENABLE_DITHERING,
 } NewportOpts;
 
 /* Supported options */
@@ -179,6 +180,7 @@ static const OptionInfoRec NewportOptions [] = {
 	{ OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_XMAP_TIMING, "XmapTiming", OPTV_INTEGER, {0}, FALSE },
 	{ OPTION_DEBUG_MASK, "DebugMask", OPTV_INTEGER, {0}, FALSE },
+	{ OPTION_ENABLE_DITHERING, "EnableDithering", OPTV_BOOLEAN, {0}, FALSE },
 	{ -1, NULL, OPTV_NONE, {0}, FALSE }
 };
 
@@ -629,7 +631,18 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	} else {
 		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
 		    "No debugging enabled\n");
+	}
 
+	/* Parse the dithering option */
+	pNewport->enable_dithering = TRUE;
+	if (xf86GetOptValBool(pNewport->Options, OPTION_ENABLE_DITHERING,
+	    &pNewport->enable_dithering)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "8/4 bit FB pixel dithering %s\n",
+		    pNewport->enable_dithering ? "Enabled" : "Disabled");
+	} else {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "Defaulting to 8/4 bit FB pixel dithering enabled\n");
 	}
 
 	/* map the Newportregs until the server dies */
@@ -976,7 +989,8 @@ NewportModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode)
 		    NPORT_DMODE1_DD8 | NPORT_DMODE1_RWPCKD;
 
 		/* Enable dithering */
-		pNewport->drawmode1 |= NPORT_DMODE1_DENAB;
+		if (pNewport->enable_dithering)
+			pNewport->drawmode1 |= NPORT_DMODE1_DENAB;
 
 		/* Configure the appropriate input based on 8, 12, 24 bit */
 		if (pNewport->curNewportInputBppCfg == NewportBppRgb24)

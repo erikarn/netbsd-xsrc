@@ -95,6 +95,8 @@ typedef struct {
 
 	unsigned int debug_mask;
 
+	Bool enable_dithering;		/* Enable dithering for framebuffer 8/4 bit pixel formats */
+
 	/* ShadowFB stuff: */
 	CARD32* ShadowPtr;
 	unsigned long int ShadowPitch;
