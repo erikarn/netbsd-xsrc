@@ -43,19 +43,18 @@
 #define NEWPORT_BASE_OFFSET 0x00400000
 #define NEWPORT_MAX_BOARDS 4
 
-#if 0
-# define DEBUG 1
-#endif
+/* TODO: maybe move this to a debug header file? */
 
-#ifdef DEBUG
-# define TRACE_ENTER(str)       ErrorF("newport: " str " %d\n",pScrn->scrnIndex)
-# define TRACE_EXIT(str)        ErrorF("newport: " str " done\n")
-# define TRACE(str)             ErrorF("newport trace: " str "\n")
-#else
-# define TRACE_ENTER(str)
-# define TRACE_EXIT(str)
-# define TRACE(str)
-#endif
+#define	NEWPORT_DBG_SHADOWFB_CALLS		0x00000001
+#define	NEWPORT_DBG_SHADOWFB_REGIONS		0x00000002
+#define	NEWPORT_DBG_ACCEL_CALLS			0x00000004
+
+#define NEWPORT_DPRINTF(p, m, ...) \
+	do { \
+		if ((p)->debug_mask & (m)) { \
+			xf86DrvMsg(0, X_INFO, __VA_ARGS__); \
+		} \
+	} while (0)
 
 typedef enum {
 	XmapTimingUnset = 0,
@@ -93,6 +92,8 @@ typedef struct {
 	NewportRegsPtr pNewportRegs;	/* Pointer to REX3 registers */
 	npireg_t drawmode1;		/* REX3 drawmode1 common to all drawing operations */
 	CARD16 vc2ctrl;                 /* VC2 control register */
+
+	unsigned int debug_mask;
 
 	/* ShadowFB stuff: */
 	CARD32* ShadowPtr;

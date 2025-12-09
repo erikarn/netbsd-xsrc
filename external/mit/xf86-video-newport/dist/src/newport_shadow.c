@@ -9,6 +9,12 @@
 
 #include "newport.h"
 
+/*
+ * Note: the shadow framebuffer code assumes that it entirely
+ * controls the drawstate; it can't be called in parallel with
+ * the acceleration code.
+ */
+
 void
 NewportRefreshArea8(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 {
@@ -21,7 +27,9 @@ NewportRefreshArea8(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 #define RA8_BYTE_SHIFT  2 	/* 4 Pixels on each burst, so divide ShadowPitch by 4 */
 #define RA8_MASK        0xffc   /* move to 4 byte boundary   */
 
-	TRACE_ENTER("NewportRefreshArea8");
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: called; num=%d\n", __func__, num);
+
 	NewportWait(pNewportRegs);
 	pNewportRegs->set.drawmode0 = (NPORT_DMODE0_DRAW | 
 					NPORT_DMODE0_BLOCK | 
@@ -32,6 +40,10 @@ NewportRefreshArea8(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 		base = pNewport->ShadowPtr 
 				+ (pbox->y1 * (pNewport->ShadowPitch >> RA8_BYTE_SHIFT) ) 
 				+ ( x >> RA8_BYTE_SHIFT);
+
+		NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_REGIONS,
+		    "%s: --> x1=%d y1=%d x2=%d y2=%d\n",
+		    __func__, pbox->x1, pbox->y1, pbox->x2, pbox->y2);
 
 		pNewportRegs->set.xystarti = (x << 16) | pbox->y1;
 		pNewportRegs->set.xyendi = ((pbox->x2-1) << 16) | (pbox->y2-1);
@@ -47,7 +59,9 @@ NewportRefreshArea8(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 		}
 		pbox++;
 	}
-	TRACE_EXIT("NewportRefreshArea8");
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: finished\n", __func__);
 }
 
 
@@ -62,7 +76,9 @@ NewportRefreshArea24(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 	NewportPtr pNewport = NEWPORTPTR(pScrn);
 	NewportRegsPtr pNewportRegs = pNewport->pNewportRegs;
 
-	TRACE_ENTER("NewportRefreshArea24");
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: called; num=%d\n", __func__, num);
+
 	NewportWait(pNewportRegs);
 
 	/* block transfers */
@@ -71,6 +87,9 @@ NewportRefreshArea24(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 					NPORT_DMODE0_CHOST);
 
 	while(num--) {
+		NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_REGIONS,
+		    "%s: --> x1=%d y1=%d x2=%d y2=%d\n",
+		    __func__, pbox->x1, pbox->y1, pbox->x2, pbox->y2);
 
 		base = (CARD8*)pNewport->ShadowPtr + pbox->y1 * pNewport->ShadowPitch + pbox->x1 
 #ifdef NEWPORT_USE32BPP		
@@ -100,6 +119,8 @@ NewportRefreshArea24(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
  		}
  		pbox++;
  	}
-	TRACE_EXIT("NewportRefreshArea24");
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: finished\n", __func__);
 }
 
