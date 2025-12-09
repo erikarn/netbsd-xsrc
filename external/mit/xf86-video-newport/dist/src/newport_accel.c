@@ -26,6 +26,24 @@
 #define BARF5(a,b,c,d,e,f) xf86DrvMsg(0, X_INFO, (a), (b), (c), (d), (e), (f))
 #define BARF6(a,b,c,d,e,f,g) xf86DrvMsg(0, X_INFO, (a), (b), (c), (d), (e), (f), (g))
 
+static Bool do_debugmsg = FALSE;
+
+/*
+ * TODO: figure out (before this gets landed) why the screen flashes
+ * red before it loads everything in correctly.  That only happened
+ * when I started mucking around with the pixel config stuff in here
+ * as part of the 24 -> 8 bit support, and I'm sure it's something
+ * super stupid.
+ */
+
+#define NEWPORT_ACCEL_DEBUGMSG(p, ...) \
+	do { \
+		(void) p; \
+		if (do_debugmsg == TRUE) { \
+			xf86DrvMsg(0, X_INFO, __VA_ARGS__); \
+		} \
+	} while (0)
+
 /* XAA Functions */
 
 #define NEWPORT_PREROTATE
@@ -190,6 +208,10 @@ NewportXAASync(ScrnInfoPtr pScrn)
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+
+    /* XXX invalidate the shadow registers?! */
+
     NewportWaitIdle(pNewport, 0);
 }
 
@@ -210,7 +232,8 @@ static void
 NewportUpdateClipping(NewportPtr pNewport)
 {
     unsigned int smask0x, smask0y;
-    
+    Bool do_log = FALSE;
+
     if (pNewport->skipleft > pNewport->clipsx)
     {
         smask0x = ((pNewport->skipleft & 0xFFFF) << 16) | (pNewport->clipex & 0xFFFF);
@@ -225,6 +248,7 @@ NewportUpdateClipping(NewportPtr pNewport)
 	NewportWaitGFIFO(pNewport, 1);
 	pNewport->shadow_smask0x = smask0x;
 	pNewport->pNewportRegs->set.smask0x = smask0x;
+        do_log = TRUE;
     }
     
     smask0y = ((pNewport->clipsy & 0xFFFF) << 16) | (pNewport->clipey & 0xFFFF);	
@@ -233,7 +257,12 @@ NewportUpdateClipping(NewportPtr pNewport)
 	NewportWaitGFIFO(pNewport, 1);
 	pNewport->shadow_smask0y = smask0y;
 	pNewport->pNewportRegs->set.smask0y = smask0y;
+        do_log = TRUE;
     }
+    if (do_log)
+    	NEWPORT_ACCEL_DEBUGMSG(pNewport,
+	    "%s: updating, smask0x=0x%08x, smask0y=0x%08x\n",
+	    __func__, smask0x, smask0y);
 }
 
 /*******************************************************************************
@@ -504,7 +533,10 @@ NewportXAASetupForScreenToScreenCopy(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
-    
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called; xdir=%d, ydir=%d, rop=%d, "
+        "planemask=0x%08x, trans_color=0x%08x\n",
+        __func__, xdir, ydir, rop, planemask, trans_color);
+
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
     NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     pNewport->skipleft = 0;
@@ -536,6 +568,10 @@ NewportXAASubsequentScreenToScreenCopy(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called; x1=%d y1=%d x2=%d y2=%d w=%d h=%d\n",
+        __func__, x1, y1, x2, y2, width, height);
 
     dx = x2 - x1;
     dy = y2 - y1;
@@ -594,6 +630,7 @@ static Bool
 NewportAccelCheckFastClear(NewportPtr pNewport, int rop, int Color,
     unsigned int planemask)
 {
+#if 0
 	/* First - rop needs to be copy, clear, set */
 	if (rop != GXcopy && rop != GXclear && rop != GXset)
 		return FALSE;
@@ -615,7 +652,7 @@ NewportAccelCheckFastClear(NewportPtr pNewport, int rop, int Color,
 	 * will clip our colours to, if it wouldn't be dithered then
 	 * do a solid fill.
 	 */
-
+#endif
 	/* Otherwise - no fast fill */
 	return FALSE;
 }
@@ -633,6 +670,10 @@ NewportXAASetupForSolidFill(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, color=0x%08x, rop=%d, planemask=0x%08x\n",
+        __func__, Color, rop, planemask);
 
     /* if possible try to set up a fast clear which is 4x faster */
     if (NewportAccelCheckFastClear(pNewport, rop, Color, planemask))
@@ -682,6 +723,10 @@ NewportXAASubsequentSolidFillRect(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x=%d y=%d w=%d h=%d\n", __func__,
+        x, y, w, h);
+
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
@@ -709,6 +754,10 @@ NewportXAASetupForSolidLine(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, Color=0x%08x, rop=%d, planemask=0x%08x\n",
+        __func__, Color, rop, planemask);
 
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
     NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
@@ -753,6 +802,10 @@ NewportXAASubsequentSolidTwoPointLine(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x1=%d y1=%d x2=%d y2=%d flags=0x%08x\n",
+        __func__, x1, y1, x2, y2, flags);
+
     /*
      * TODO: if this doesn't stall the pipeline then it makes sense
      * that we can keep changing drawmode0 on each line draw.
@@ -765,7 +818,6 @@ NewportXAASubsequentSolidTwoPointLine(ScrnInfoPtr pScrn,
     pNewportRegs->set.xystarti = ((x1 & 0xFFFF) << 16) | (y1 & 0xFFFF);
     pNewportRegs->go.xyendi = ((x2 & 0xFFFF) << 16) | (y2 & 0xFFFF);
 }
-
 
 /*******************************************************************************
 
@@ -785,6 +837,10 @@ NewportXAASetupForDashedLine(ScrnInfoPtr pScrn,
     
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, fg=0x%08x, bg=0x%08x, rop=%d, planemask=0x%08x, length=%d\n",
+        __func__, fg, bg, rop, planemask, length);
 
     pNewport->dashline_patlen = length;
     for (i = 0; i < (length+7)>>3; i++)
@@ -829,6 +885,10 @@ NewportXAASubsequentDashedTwoPointLine(ScrnInfoPtr pScrn,
     
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x1=%d y1=%d x2=%d y2=%d flags=0x%08x, phase=%d\n",
+        __func__, x1, y1, x2, y2, flags, phase);
 
     dx = x2 - x1; if (dx < 0) dx = -dx; dx++;
     dy = y2 - y1; if (dy < 0) dy = -dy; dy++;
@@ -883,6 +943,10 @@ NewportXAASetupForCPUToScreenColorExpandFill(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, fg=0x%08x bg=0x%08x, rop+%d, planemask=0x%08x\n",
+        __func__, fg, bg, rop, planemask);
+
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
     NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     if (bg != -1)
@@ -916,6 +980,10 @@ NewportXAASubsequentCPUToScreenColorExpandFill(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x=%d y=%d w=%d h=%d skipleft=%d\n",
+        __func__, x, y, w, h, skipleft);
 
     if (w == 0) w = 1;
     if (h == 0) h = 1;
@@ -961,6 +1029,10 @@ NewportXAASetupForImageWrite(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, rop=%d, planemask=0x%08x, trans_color=0x%08x, bpp=%d, depth=%d\n",
+        __func__, rop, planemask, trans_color, bpp, depth);
+
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
     NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     NewportUpdateDRAWMODE0(pNewport,
@@ -995,6 +1067,10 @@ NewportXAASubsequentImageWriteRect(ScrnInfoPtr pScrn,
     
     ex = x + w - 1;
     ey = y + h - 1;
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x=%d y=%d w=%d h=%d skipleft=%d\n",
+        __func__, x, y, w, h, skipleft);
 
     if (skipleft)
     {
@@ -1059,6 +1135,9 @@ NewportXAASetupForMono8x8PatternFill(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, patx=0x%08x, paty=0x%08x, fg=0x%08x, bg=0x%08x, rop=%d, planemask=0x%08x\n",
+	__func__, patx, paty, fg, bg, rop, planemask);
 
 #ifdef NEWPORT_PREROTATE    
     /* prerotate the pattern */
@@ -1109,12 +1188,16 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
 #ifndef NEWPORT_PREROTATE
     unsigned int p;
     unsigned int epat[8];
-#endif    
-
-    NewportRegsPtr pNewportRegs;
+#endif   
     NewportPtr pNewport;
+    NewportRegsPtr pNewportRegs;
+
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, patx=0x%08x, paty=0x%08x, x=%d, y=%d, w=%d, h=%d\n",
+        __func__, patx, paty, x, y, w, h);
 
     if (w == 0) w = 1;
     if (h == 0) h = 1;
@@ -1180,6 +1263,10 @@ NewportXAAReadPixmap(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, x=%d, y=%d, w=%d, h=%d, dstwidth=%d, bpp=%d, depth=%d\n",
+        __func__, x, y, w, h, dstwidth, bpp, depth);
 
     if (w == 0) w = 1;
     if (h == 0) h = 1;
@@ -1274,6 +1361,10 @@ NewportXAASetClippingRectangle(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called, left=%d, top=%d, right=%d, bottom=%d\n",
+        __func__, left, top, right, bottom);
+
     if (left < 0) left = 0;
     if (right > pScrn->virtualX-1) right = pScrn->virtualX-1;
     
@@ -1296,6 +1387,8 @@ NewportXAADisableClipping(ScrnInfoPtr pScrn)
 {
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
 
     pNewport->clipsx = 0;
     pNewport->clipex = pScrn->virtualX-1;
@@ -1335,11 +1428,16 @@ NewportPolyPoint(DrawablePtr pDraw,
     infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
     pScrn = infoRec->pScrn;
 
+    pNewport = NEWPORTPTR(pScrn);
+    pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called; mode=%d, npt=%d, "
+        "numRects=%d, rop=%d, fgpixel=0x%08x, planemask=0x%08x\n",
+        __func__, mode, npt, numRects, pGC->alu, pGC->fgPixel, pGC->planemask);
+
     if (!numRects) 
 	return;
 
-    pNewport = NEWPORTPTR(pScrn);
-    pNewportRegs = NEWPORTREGSPTR(pScrn);
 
     x = pDraw->x;
     y = pDraw->y;
@@ -1411,6 +1509,17 @@ NewportValidatePolyPoint(GCPtr pGC,
                          unsigned long changes,
                          DrawablePtr pDraw)
 {
+    XAAInfoRecPtr infoRec;
+    ScrnInfoPtr pScrn;
+    NewportPtr pNewport;
+
+    infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
+    pScrn = infoRec->pScrn;
+    pNewport = NEWPORTPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called; changes=0x%08x, type=%d\n",
+        __func__, changes, pDraw->type);
 
     if (pDraw->type == DRAWABLE_WINDOW)   
     {
@@ -1436,8 +1545,19 @@ NewportPolyArc(DrawablePtr pDraw,
     BoxRec box;
     int i, x2, y2;
     RegionPtr cclip;
+    XAAInfoRecPtr infoRec;
+    ScrnInfoPtr pScrn;
+    NewportPtr pNewport;
+
+    infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
+    pScrn = infoRec->pScrn;
+    pNewport = NEWPORTPTR(pScrn);
 
     cclip = pGC->pCompositeClip;
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called; narcs=%d, num regions=%d\n",
+        __func__, narcs, REGION_NUM_RECTS(cclip));
 
     if(!REGION_NUM_RECTS(cclip))
 	return;
@@ -1468,6 +1588,17 @@ NewportValidatePolyArc(GCPtr pGC,
                        unsigned long changes,
                        DrawablePtr pDraw)
 {
+    XAAInfoRecPtr infoRec;
+    ScrnInfoPtr pScrn;
+    NewportPtr pNewport;
+
+    infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
+    pScrn = infoRec->pScrn;
+    pNewport = NEWPORTPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport,
+        "%s: called; changes=0x%08x, type=%d\n",
+        __func__, changes, pDraw->type);
 
     if (pDraw->type == DRAWABLE_WINDOW)   
     {
@@ -1512,6 +1643,8 @@ NewportXAASetupForCPUToScreenAlphaTexture(
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
 
     if (width * height * sizeof(unsigned int) > pNewport->uTextureSize)
     {
@@ -1584,6 +1717,8 @@ NewportXAASetupForCPUToScreenTexture(
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+    
     if (width * height * sizeof(unsigned int) > pNewport->uTextureSize)
     {
 	free(pNewport->pTexture);
@@ -1659,6 +1794,8 @@ NewportRenderTexture1to1(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+    
     p = pNewport->pTexture + srcx + (srcy * pNewport->uTextureWidth);
     add = pNewport->uTextureWidth - w + srcx;
 
@@ -1688,6 +1825,8 @@ NewportRenderTextureScale(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+    
     dx = ((pNewport->uTextureWidth - srcx) << 16) / w;
     dy = ((pNewport->uTextureHeight - srcy) << 16) / h;
     
@@ -1725,6 +1864,8 @@ NewportRenderTextureRepeat(NewportPtr pNewport, int srcx, int srcy, int w, int h
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+    
     srcx %= pNewport->uTextureWidth;
     srcy %= pNewport->uTextureHeight;
     
@@ -1767,6 +1908,8 @@ NewportXAASubsequentCPUToScreenTexture(
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: called\n", __func__);
+    
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
@@ -1841,6 +1984,7 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	                              ;
 	pXAAInfoRec->SetupForSolidLine = NewportXAASetupForSolidLine;
 	pXAAInfoRec->SubsequentSolidTwoPointLine = NewportXAASubsequentSolidTwoPointLine;
+	/* TODO: solid hor/vert line? To use a span for horiz? */
 	
 	/* dashed lines */
 	pXAAInfoRec->DashedLineFlags = 0
@@ -1882,6 +2026,8 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 						     
 	pXAAInfoRec->SetupForMono8x8PatternFill	= NewportXAASetupForMono8x8PatternFill;
 	pXAAInfoRec->SubsequentMono8x8PatternFillRect = NewportXAASubsequentMono8x8PatternFillRect;
+
+	/* TODO: no colour 8x8 fill */
 
 	/* Image write */
 	pXAAInfoRec->ImageWriteFlags = 0
