@@ -168,6 +168,7 @@ typedef enum {
 	OPTION_HWCURSOR,
 	OPTION_NOACCEL,
 	OPTION_XMAP_TIMING,
+	OPTION_DEBUG_MASK,
 } NewportOpts;
 
 /* Supported options */
@@ -177,6 +178,7 @@ static const OptionInfoRec NewportOptions [] = {
 	{ OPTION_HWCURSOR, "HWCursor", OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_XMAP_TIMING, "XmapTiming", OPTV_INTEGER, {0}, FALSE },
+	{ OPTION_DEBUG_MASK, "DebugMask", OPTV_INTEGER, {0}, FALSE },
 	{ -1, NULL, OPTV_NONE, {0}, FALSE }
 };
 
@@ -619,6 +621,17 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	pScrn = xf86Screens[pScreen->myNum];
 	pNewport = NEWPORTPTR(pScrn);
 
+	/* Parse the debug mask for subsequent debugging */
+	if (xf86GetOptValInteger(pNewport->Options, OPTION_DEBUG_MASK,
+	    &pNewport->debug_mask)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "Debug mask: 0x%08x\n", pNewport->debug_mask);
+	} else {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "No debugging enabled\n");
+
+	}
+
 	/* map the Newportregs until the server dies */
 	if( ! NewportMapRegs(pScrn)) 
 		return FALSE;
@@ -696,12 +709,6 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	    if (!xf86LoadSubModule(pScrn, "xaa"))
 		pNewport->NoAccel = TRUE;
 	}
-#if 0    
-	if (pScrn->bitsPerPixel < 24)
-	{ /* not implemented yet */
-	    pNewport->NoAccel = TRUE;
-	}
-#endif	
 	pNewport->pXAAInfoRec = NULL;
 	if (!pNewport->NoAccel)
 	{
@@ -732,15 +739,20 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
                    "Colormap initialization failed\n");
 		return FALSE;
 	}
-#ifdef NEWPORT_ACCEL
-	if (pNewport->NoAccel)
-#endif
-	/* Initialise shadow frame buffer */
-	if(!ShadowFBInit(pScreen, (pNewport->Bpp == 1) ? &NewportRefreshArea8 :
-				&NewportRefreshArea24)) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-                   "ShadowFB initialization failed\n");
-		return FALSE;
+
+	/*
+	 * Note if XAA is setup, then the shadow FB isn't used?
+	 * Is this .. correct?
+	 */
+	if (pNewport->NoAccel) {
+		/* Initialise shadow frame buffer */
+		if(!ShadowFBInit(pScreen,
+		    (pNewport->Bpp == 1) ? &NewportRefreshArea8 :
+		    &NewportRefreshArea24)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "ShadowFB initialization failed\n");
+			return FALSE;
+		}
 	}
 
 	{
