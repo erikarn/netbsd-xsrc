@@ -157,7 +157,8 @@ typedef struct {
 	
 	unsigned int pat8x8[8][8];
 	
-	unsigned int (*Color2Planes)(unsigned int color);
+	unsigned int (*Color2Planes_Mask)(unsigned int color);
+	unsigned int (*Color2Planes_Color)(unsigned int color);
 	
 #ifdef RENDER
 	unsigned int uTextureWidth;
