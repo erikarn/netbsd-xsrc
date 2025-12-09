@@ -36,13 +36,8 @@ static Bool do_debugmsg = FALSE;
  * super stupid.
  */
 
-#define NEWPORT_ACCEL_DEBUGMSG(p, ...) \
-	do { \
-		(void) p; \
-		if (do_debugmsg == TRUE) { \
-			xf86DrvMsg(0, X_INFO, __VA_ARGS__); \
-		} \
-	} while (0)
+#define	NEWPORT_ACCEL_DEBUGMSG(p, ...) \
+	    NEWPORT_DPRINTF(p, NEWPORT_DBG_ACCEL_CALLS, __VA_ARGS__)
 
 /* XAA Functions */
 
