@@ -189,7 +189,7 @@ NewportXAASync(ScrnInfoPtr pScrn)
 {
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
-    
+
     NewportWaitIdle(pNewport, 0);
 }
 
@@ -503,9 +503,10 @@ NewportXAASetupForScreenToScreenCopy(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
+
     
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     pNewport->skipleft = 0;
     NewportUpdateClipping(pNewport);
     NewportUpdateDRAWMODE0(pNewport,
@@ -535,7 +536,7 @@ NewportXAASubsequentScreenToScreenCopy(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     dx = x2 - x1;
     dy = y2 - y1;
     if (!dx && !dy) 
@@ -582,6 +583,43 @@ NewportXAASubsequentScreenToScreenCopy(ScrnInfoPtr pScrn,
     pNewportRegs->go.xyendi = (ex << 16) | ey;        
 }				       
 
+/*
+ * Return TRUE if the given fill operation should be a fast fill
+ * rather than a normal fill.
+ *
+ * This is where we make sure we do things like dither solid
+ * fills.
+ */
+static Bool
+NewportAccelCheckFastClear(NewportPtr pNewport, int rop, int Color,
+    unsigned int planemask)
+{
+	/* First - rop needs to be copy, clear, set */
+	if (rop != GXcopy && rop != GXclear && rop != GXset)
+		return FALSE;
+
+	/*
+	 * Next, check our operating mode; for now if we're in 8 bit CI
+	 * or 24 bit RGB in/out, then we're ok.
+	 */
+	if ((pNewport->curNewportInputBppCfg == NewportBppCi8) &&
+	    (pNewport->curNewportOutputBppCfg == NewportBppCi8))
+		return TRUE;
+
+	if ((pNewport->curNewportInputBppCfg == NewportBppRgb24) &&
+	    (pNewport->curNewportOutputBppCfg == NewportBppRgb24))
+		return TRUE;
+
+	/*
+	 * TODO: check the colour/planemask against what the hardware
+	 * will clip our colours to, if it wouldn't be dithered then
+	 * do a solid fill.
+	 */
+
+	/* Otherwise - no fast fill */
+	return FALSE;
+}
+
 /*******************************************************************************
 
 *******************************************************************************/
@@ -596,19 +634,18 @@ NewportXAASetupForSolidFill(ScrnInfoPtr pScrn,
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
-    if (rop == GXcopy
-        || rop == GXclear
-	|| rop == GXset)
+    /* if possible try to set up a fast clear which is 4x faster */
+    if (NewportAccelCheckFastClear(pNewport, rop, Color, planemask))
     {
-	/* if possible try to set up a fast clear which is 4x faster */
-	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
+	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1
+	    | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
 	if (rop == GXclear)
 	    NewportUpdateCOLORVRAM(pNewport, 0);
 	else
 	if (rop == GXset)
 	    NewportUpdateCOLORVRAM(pNewport, 0xFFFFFF);
 	else
-            NewportUpdateCOLORVRAM(pNewport, pNewport->Color2Planes((unsigned int)Color));
+            NewportUpdateCOLORVRAM(pNewport, pNewport->Color2Planes_Color((unsigned int)Color));
     }
     else
     {
@@ -616,7 +653,7 @@ NewportXAASetupForSolidFill(ScrnInfoPtr pScrn,
 	NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(Color));
     }
     
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     pNewport->skipleft = 0;
     NewportUpdateClipping(pNewport);
     NewportUpdateDRAWMODE0(pNewport, 
@@ -644,12 +681,12 @@ NewportXAASubsequentSolidFillRect(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
     ey = y + h - 1;
-    
+
     NewportWaitGFIFO(pNewport, 2);
     pNewportRegs->set.xystarti = ((x & 0xFFFF) << 16) | (y & 0xFFFF);
     pNewportRegs->go.xyendi = ((ex & 0xFFFF) << 16) | (ey & 0xFFFF);
@@ -674,7 +711,7 @@ NewportXAASetupForSolidLine(ScrnInfoPtr pScrn,
     pNewportRegs = NEWPORTREGSPTR(pScrn);
 
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(Color));
 
     pNewport->skipleft = 0;
@@ -748,13 +785,13 @@ NewportXAASetupForDashedLine(ScrnInfoPtr pScrn,
     
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     pNewport->dashline_patlen = length;
     for (i = 0; i < (length+7)>>3; i++)
 	pNewport->dashline_pat[i] = pattern[i];
 
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     if (bg != -1)
 	NewportUpdateCOLORBACK(pNewport, NewportColor2HOSTRW(bg));
     NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(fg));
@@ -845,9 +882,9 @@ NewportXAASetupForCPUToScreenColorExpandFill(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));    
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     if (bg != -1)
 	NewportUpdateCOLORBACK(pNewport, NewportColor2HOSTRW(bg));
     NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(fg));
@@ -879,7 +916,7 @@ NewportXAASubsequentCPUToScreenColorExpandFill(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
@@ -923,9 +960,9 @@ NewportXAASetupForImageWrite(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
- 
+
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     NewportUpdateDRAWMODE0(pNewport,
                            0
                            | NPORT_DMODE0_DRAW
@@ -1021,7 +1058,8 @@ NewportXAASetupForMono8x8PatternFill(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
+
 #ifdef NEWPORT_PREROTATE    
     /* prerotate the pattern */
     prerotatebyte((unsigned int)patx >> 24, pNewport->pat8x8[0]);
@@ -1034,7 +1072,7 @@ NewportXAASetupForMono8x8PatternFill(ScrnInfoPtr pScrn,
     prerotatebyte((unsigned int)paty, pNewport->pat8x8[7]);
 #endif    
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(planemask));    
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(planemask));
     if (bg != -1)
 	NewportUpdateCOLORBACK(pNewport, NewportColor2HOSTRW(bg));
     NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(fg));
@@ -1072,7 +1110,7 @@ NewportXAASubsequentMono8x8PatternFillRect(ScrnInfoPtr pScrn,
     unsigned int p;
     unsigned int epat[8];
 #endif    
-    
+
     NewportRegsPtr pNewportRegs;
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
@@ -1142,7 +1180,7 @@ NewportXAAReadPixmap(ScrnInfoPtr pScrn,
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
@@ -1150,7 +1188,7 @@ NewportXAAReadPixmap(ScrnInfoPtr pScrn,
     
     NewportWaitIdle(pNewport, 0);
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(GXcopy) | NPORT_DMODE1_PFENAB);
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(0xFFFFFFFF));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(0xFFFFFFFF));
     NewportUpdateDRAWMODE0(pNewport,
                            0
                            | NPORT_DMODE0_RD
@@ -1296,7 +1334,7 @@ NewportPolyPoint(DrawablePtr pDraw,
     
     infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
     pScrn = infoRec->pScrn;
-    
+
     if (!numRects) 
 	return;
 
@@ -1308,20 +1346,19 @@ NewportPolyPoint(DrawablePtr pDraw,
     
     rop = pGC->alu;
     
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(pGC->planemask));
-    if (rop == GXcopy
-        || rop == GXclear
-	|| rop == GXset)
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(pGC->planemask));
+    /* if possible try to set up a fast clear which is 4x faster */
+    if (NewportAccelCheckFastClear(pNewport, rop, pGC->fgPixel, pGC->planemask))
     {
-	/* if possible try to set up a fast clear which is 4x faster */
-	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
+	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1
+	    | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
 	if (rop == GXclear)
 	    NewportUpdateCOLORVRAM(pNewport, 0);
 	else
 	if (rop == GXset)
 	    NewportUpdateCOLORVRAM(pNewport, 0xFFFFFF);
 	else
-            NewportUpdateCOLORVRAM(pNewport, pNewport->Color2Planes((unsigned int)(pGC->fgPixel)));
+            NewportUpdateCOLORVRAM(pNewport, pNewport->Color2Planes_Color((unsigned int)(pGC->fgPixel)));
     }
     else
     {
@@ -1431,6 +1468,7 @@ NewportValidatePolyArc(GCPtr pGC,
                        unsigned long changes,
                        DrawablePtr pDraw)
 {
+
     if (pDraw->type == DRAWABLE_WINDOW)   
     {
 	pGC->ops->PolyPoint = NewportPolyPoint;
@@ -1509,7 +1547,7 @@ NewportXAASetupForCPUToScreenAlphaTexture(
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(GXcopy) | NPORT_DMODE1_BENAB | SFACTOR | DFACTOR );
 #undef SFACTOR
 #undef DFACTOR    
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(0xFFFFFFFF));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(0xFFFFFFFF));
 
     pNewport->skipleft = 0;
     NewportUpdateClipping(pNewport);
@@ -1545,7 +1583,7 @@ NewportXAASetupForCPUToScreenTexture(
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     if (width * height * sizeof(unsigned int) > pNewport->uTextureSize)
     {
 	free(pNewport->pTexture);
@@ -1586,7 +1624,7 @@ NewportXAASetupForCPUToScreenTexture(
     }
     else
     {
-	xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Unknown texture format\n");
+	xf86DrvMsg(0, X_ERROR, "Unknown texture format\n");
     }
     
 #define SFACTOR (4 << 19)
@@ -1594,7 +1632,7 @@ NewportXAASetupForCPUToScreenTexture(
     NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(GXcopy) | NPORT_DMODE1_BENAB | SFACTOR | DFACTOR );
 #undef SFACTOR
 #undef DFACTOR    
-    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes(0xFFFFFFFF));
+    NewportUpdateWRMASK(pNewport, pNewport->Color2Planes_Mask(0xFFFFFFFF));
 
     pNewport->skipleft = 0;
     NewportUpdateClipping(pNewport);
@@ -1620,7 +1658,7 @@ NewportRenderTexture1to1(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     unsigned int add, d;
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
-    
+
     p = pNewport->pTexture + srcx + (srcy * pNewport->uTextureWidth);
     add = pNewport->uTextureWidth - w + srcx;
 
@@ -1649,7 +1687,7 @@ NewportRenderTextureScale(NewportPtr pNewport, int srcx, int srcy, int w, int h)
     int l, p;
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
-    
+
     dx = ((pNewport->uTextureWidth - srcx) << 16) / w;
     dy = ((pNewport->uTextureHeight - srcy) << 16) / h;
     
@@ -1686,7 +1724,7 @@ NewportRenderTextureRepeat(NewportPtr pNewport, int srcx, int srcy, int w, int h
     unsigned int *pLine;
     NewportRegsPtr pNewportRegs;
     pNewportRegs = pNewport->pNewportRegs;
-    
+
     srcx %= pNewport->uTextureWidth;
     srcy %= pNewport->uTextureHeight;
     
@@ -1728,7 +1766,7 @@ NewportXAASubsequentCPUToScreenTexture(
     NewportPtr pNewport;
     pNewport = NEWPORTPTR(pScrn);
     pNewportRegs = NEWPORTREGSPTR(pScrn);
-    
+
     if (w == 0) w = 1;
     if (h == 0) h = 1;
     ex = x + w - 1;
@@ -1902,24 +1940,38 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	 * via HOSTRW.
 	 */
 #ifdef RENDER
-	if (pScrn->bitsPerPixel > 8) 
-	{
-	    pXAAInfoRec->CPUToScreenTextureFlags = 0
-		                                   ;
-	    pXAAInfoRec->CPUToScreenTextureFormats = NewportTextureFormats;
-	    pXAAInfoRec->CPUToScreenTextureDstFormats = NewportDstFormats;
-	    pXAAInfoRec->SetupForCPUToScreenTexture2 = NewportXAASetupForCPUToScreenTexture;
-	    pXAAInfoRec->SubsequentCPUToScreenTexture = NewportXAASubsequentCPUToScreenTexture;
+	switch (pNewport->curNewportInputBppCfg) {
+	case NewportBppRgb24:
+		xf86DrvMsg(0, X_CONFIG,
+		    "ACCEL: Enabling alpha/texture acceleration\n");
+		pXAAInfoRec->CPUToScreenTextureFlags = 0;
 
-	    pXAAInfoRec->CPUToScreenAlphaTextureFlags = 0
-	                                                ;
-	    pXAAInfoRec->CPUToScreenAlphaTextureFormats = NewportAlphaTextureFormats;
-	    pXAAInfoRec->CPUToScreenAlphaTextureDstFormats = NewportDstFormats;
-	    pXAAInfoRec->SetupForCPUToScreenAlphaTexture2 = NewportXAASetupForCPUToScreenAlphaTexture;
-	    pXAAInfoRec->SubsequentCPUToScreenAlphaTexture = NewportXAASubsequentCPUToScreenTexture; /* this is the same for both */
-	    pNewport->pTexture = (unsigned int *)xnfalloc(pNewport->uTextureSize = 16*16*sizeof(unsigned int));
+		pXAAInfoRec->CPUToScreenTextureFormats =
+		    NewportTextureFormats;
+		pXAAInfoRec->CPUToScreenTextureDstFormats =
+		    NewportDstFormats;
+		pXAAInfoRec->SetupForCPUToScreenTexture2 =
+		    NewportXAASetupForCPUToScreenTexture;
+		pXAAInfoRec->SubsequentCPUToScreenTexture =
+		    NewportXAASubsequentCPUToScreenTexture;
+
+		pXAAInfoRec->CPUToScreenAlphaTextureFlags = 0;
+		pXAAInfoRec->CPUToScreenAlphaTextureFormats =
+		    NewportAlphaTextureFormats;
+		pXAAInfoRec->CPUToScreenAlphaTextureDstFormats =
+		    NewportDstFormats;
+		pXAAInfoRec->SetupForCPUToScreenAlphaTexture2 =
+		    NewportXAASetupForCPUToScreenAlphaTexture;
+		pXAAInfoRec->SubsequentCPUToScreenAlphaTexture =
+		    NewportXAASubsequentCPUToScreenTexture; /* this is the same for both */
+		pNewport->uTextureSize = 16*16*sizeof(unsigned int);
+		pNewport->pTexture =
+		    (unsigned int *)xnfalloc(pNewport->uTextureSize);
+		break;
+	default:
+		break;
 	}
-#endif	
+#endif
 
 	/*
 	 * Configure acceleration based on the screen config and the
@@ -1932,26 +1984,78 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	 * are packed or not; whereas this field is the raw field
 	 * in the table.
 	 *
+	 * For now it's a mostly straight shot mapping for 8 bit CI and
+	 * 24 bit RGB.  However, for 24 bit RGB -> 8 bit RGB we'll need
+	 * to downsample the planemask appropriately.
+	 *
+	 * This is also where we'd do double buffering shenanigans as
+	 * well.
+	 *
 	 * See REX3 specification section 3.3 (Clipping and Masking)
 	 * and 3.9 (Framebuffer formats) for more information.
-	 *
-	 * TODO: this needs to be revisited when configuring other
-	 * framebuffer pixel layouts, eg 24 bit colour writes
-	 * into HOSTRW, but a RGB-332 framebuffer.
-	 *
-	 * In this instance, we'd choose a function based on
-	 * pixel config (eg RGB888, RGB444, RGB332, CI) and
-	 * eventually also the double buffering target plane.
 	 */
-	pNewport->Color2Planes = NewportColor2Planes24RGB;
-	/*
-	 * TODO: this is looking at the screen bpp, it should be changed
-	 * to look at the DRAWDEPTH/PLANES/RWPACKED field and choose
-	 * appropriately.
-	 */
-	if (pScrn->bitsPerPixel == 8)
-	{
-	    pNewport->Color2Planes = NewportColor2Planes8CI;
+	switch (pNewport->curNewportInputBppCfg) {
+	case NewportBppRgb24:
+		/*
+		 * For now we only support 24 bit and 8 bit colour
+		 * output.  Later on we may want to support double
+		 * buffering by having the underlying pixel layout
+		 * be RGB444-DB and the write mask is how we would
+		 * configure which set of pixels are written.
+		 */
+		if (pNewport->curNewportOutputBppCfg == NewportBppRgb24) {
+			xf86DrvMsg(0, X_CONFIG,
+			    "ACCEL: 24 bit RGB accel\n");
+			pNewport->Color2Planes_Color = NewportColor2Planes24RGB;
+			pNewport->Color2Planes_Mask = NewportColor2Planes24RGB;
+		} else if (pNewport->curNewportOutputBppCfg == NewportBppRgb8) {
+			xf86DrvMsg(0, X_CONFIG,
+			    "ACCEL: 24 bit RGB FB, 8 bit RGB output accel\n");
+
+			/*
+			 * XXX For now, but this isn't technically correct
+			 * for the RGB mapping/clamping as although we're
+			 * writing a 24 bit RGB, we will need to figure out
+			 * how to downsample that to RGB332 and make a suitable
+			 * mask.
+			 */
+			pNewport->Color2Planes_Color = NewportColor2Planes24RGB;
+			pNewport->Color2Planes_Mask = NewportColor2Planes24RGB;
+		} else {
+			xf86DrvMsg(0, X_ERROR,
+			    "ACCEL: error, unsupported config for now "
+			    "(screen bpp %d) (input cfg=%d) (output cfg=%d)\n",
+			    pScrn->bitsPerPixel,
+			    pNewport->curNewportInputBppCfg,
+			    pNewport->curNewportOutputBppCfg);
+			return FALSE;
+		}
+		break;
+	case NewportBppCi8:
+		/* For 8bpp we only support 8 bit CI output */
+		if (pNewport->curNewportOutputBppCfg == NewportBppCi8) {
+			xf86DrvMsg(0, X_CONFIG,
+			    "ACCEL: 8 bit CI accel\n");
+			pNewport->Color2Planes_Color = NewportColor2Planes8CI;
+			pNewport->Color2Planes_Mask = NewportColor2Planes8CI;
+		} else {
+			xf86DrvMsg(0, X_ERROR,
+			    "ACCEL: error, unsupported config for now "
+			    "(screen bpp %d) (input cfg=%d) (output cfg=%d)\n",
+			    pScrn->bitsPerPixel,
+			    pNewport->curNewportInputBppCfg,
+			    pNewport->curNewportOutputBppCfg);
+			return FALSE;
+		}
+		break;
+	default:
+		xf86DrvMsg(0, X_ERROR,
+		    "ACCEL: error, unsupported config for now "
+		    "(screen bpp %d) (input cfg=%d) (output cfg=%d)\n",
+		    pScrn->bitsPerPixel,
+		    pNewport->curNewportInputBppCfg,
+		    pNewport->curNewportOutputBppCfg);
+		return FALSE;
 	}
 
 	if (!XAAInit(pScreen, pXAAInfoRec))
