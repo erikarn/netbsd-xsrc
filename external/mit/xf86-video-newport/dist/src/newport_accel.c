@@ -28,14 +28,6 @@
 
 static Bool do_debugmsg = FALSE;
 
-/*
- * TODO: figure out (before this gets landed) why the screen flashes
- * red before it loads everything in correctly.  That only happened
- * when I started mucking around with the pixel config stuff in here
- * as part of the 24 -> 8 bit support, and I'm sure it's something
- * super stupid.
- */
-
 #define	NEWPORT_ACCEL_DEBUGMSG(p, ...) \
 	    NEWPORT_DPRINTF(p, NEWPORT_DBG_ACCEL_CALLS, __VA_ARGS__)
 
@@ -367,17 +359,33 @@ NewportColor2Planes8CI(unsigned int color)
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Setup the COLORI register.
+ *
+ * According to REX3 in the Errata list, COLORI only supports
+ * BGR-888 packing or straight up CI in CI mode.  For other
+ * formats (eg if we wanted to write 8 or 12 bit RGB) we would
+ * need to map it appropriately.
+ *
+ * This needs to be programmed only /after/ a DRAWMODE1 RGBMODE
+ * bit is set/cleared.  The shadow value also needs to be invalidated
+ * when DRAWMODE1 RGBMODE is changed.
+ */
 static void
 NewportUpdateCOLORI(NewportPtr pNewport, unsigned long colori)
 {
 
     NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
         "COLORI=0x%08x\n", colori);
-    if (colori != pNewport->shadow_colori)
+
+    if ((pNewport->shadow_colori_valid == FALSE) ||
+        (colori != pNewport->shadow_colori))
     {
 	NewportWaitGFIFO(pNewport, 1);
 	pNewport->shadow_colori = colori;
 	pNewport->pNewportRegs->set.colori = colori;
+	pNewport->shadow_colori_valid = TRUE;
     }
 }
 
@@ -424,11 +432,19 @@ NewportUpdateDRAWMODE1(NewportPtr pNewport, unsigned long drawmode1)
     NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
         "DRAWMODE1=0x%08x\n", drawmode1);
 
+    /*
+     * (At least) these registers need to be reprogrammed if DRAWMODE1
+     * RGBMODE changes.
+     */
+    pNewport->shadow_colori_valid = FALSE;
+    pNewport->shadow_colorback_valid = FALSE;
+
     if (drawmode1 != pNewport->shadow_drawmode1)
     {
 	NewportWaitIdle(pNewport, 1);
 	pNewport->shadow_drawmode1 = drawmode1;
 	pNewport->pNewportRegs->set.drawmode1 = drawmode1;
+
     }
 }
 
@@ -467,6 +483,10 @@ NewportUpdateCOLORVRAM(NewportPtr pNewport, unsigned long colorvram)
  * This register stalls the pipeline until clear when written to.
  *
  * TODO: should update GFIFO depth when this is written to!
+ *
+ * This needs to be programmed only /after/ a DRAWMODE1 RGBMODE
+ * bit is set/cleared.  The shadow value also needs to be invalidated
+ * when DRAWMODE1 RGBMODE is changed.
  */
 static void
 NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
@@ -474,11 +494,13 @@ NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
     NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
         "COLORBACK=0x%08x\n", colorback);
 
-    if (colorback != pNewport->shadow_colorback)
+    if ((pNewport->shadow_colorback == FALSE) ||
+        (colorback != pNewport->shadow_colorback))
     {
 	NewportWaitIdle(pNewport, 1);
 	pNewport->shadow_colorback = colorback;
 	pNewport->pNewportRegs->set.colorback = colorback;
+	pNewport->shadow_colorback_valid = TRUE;
     }
 }
 
@@ -2235,10 +2257,11 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	}
 
 	pNewport->fifoleft = 0;
+
 	/* init bunch of registers */
-	
 	pNewport->shadow_drawmode0 = pNewportRegs->set.drawmode0;
 	pNewport->shadow_colori = pNewportRegs->set.colori;
+	pNewport->shadow_colori_valid = FALSE;
 	pNewport->shadow_smask0x = pNewportRegs->set.smask0x;
 	pNewport->shadow_smask0y = pNewportRegs->set.smask0y;
 	
@@ -2257,7 +2280,8 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	
 	pNewport->shadow_colorback = 0;
 	pNewportRegs->set.colorback = 0;
-	
+	pNewport->shadow_colorback_valid = FALSE;
+
 	pNewport->clipsx = 0;
 	pNewport->clipex = pScrn->virtualX-1;
 	pNewport->clipsy = 0;
@@ -2269,7 +2293,7 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 	BARF1("CONFIG %08X\n", pNewportRegs->cset.config);
 	BARF1("SMASK0X %08X\n", pNewportRegs->set.smask0x);
 	BARF1("SMASK0Y %08X\n", pNewportRegs->set.smask0y);
-	
+
 /*
   set GIO bus timeout to highest possible value 4.32us 
   this will allow for longer bus stalls without bus error
