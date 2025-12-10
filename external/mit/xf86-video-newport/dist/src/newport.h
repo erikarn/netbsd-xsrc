@@ -143,6 +143,7 @@ typedef struct {
 	unsigned int shadow_drawmode1;
 	unsigned int shadow_colorvram;
 	unsigned int shadow_colorback;
+	Bool shadow_colorback_valid;
 	unsigned int shadow_xymove;
 	unsigned int shadow_wrmask;
 	unsigned int shadow_clipmode;
@@ -150,6 +151,7 @@ typedef struct {
 	
 	unsigned int shadow_drawmode0;
 	unsigned int shadow_colori;
+	Bool shadow_colori_valid;
 	unsigned int shadow_smask0x;
 	unsigned int shadow_smask0y;
 	
