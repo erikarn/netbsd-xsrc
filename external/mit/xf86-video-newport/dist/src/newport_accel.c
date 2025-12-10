@@ -370,6 +370,9 @@ NewportColor2Planes8CI(unsigned int color)
 static void
 NewportUpdateCOLORI(NewportPtr pNewport, unsigned long colori)
 {
+
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "COLORI=0x%08x\n", colori);
     if (colori != pNewport->shadow_colori)
     {
 	NewportWaitGFIFO(pNewport, 1);
@@ -392,6 +395,9 @@ NewportUpdateCOLORI(NewportPtr pNewport, unsigned long colori)
 static void
 NewportUpdateDRAWMODE0(NewportPtr pNewport, unsigned long drawmode0)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "DRAWMODE0=0x%08x\n", drawmode0);
+
     if (drawmode0 != pNewport->shadow_drawmode0)
     {
 	NewportWaitGFIFO(pNewport, 1);
@@ -415,6 +421,9 @@ NewportUpdateDRAWMODE0(NewportPtr pNewport, unsigned long drawmode0)
 static void
 NewportUpdateDRAWMODE1(NewportPtr pNewport, unsigned long drawmode1)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "DRAWMODE1=0x%08x\n", drawmode1);
+
     if (drawmode1 != pNewport->shadow_drawmode1)
     {
 	NewportWaitIdle(pNewport, 1);
@@ -437,6 +446,9 @@ NewportUpdateDRAWMODE1(NewportPtr pNewport, unsigned long drawmode1)
 static void
 NewportUpdateCOLORVRAM(NewportPtr pNewport, unsigned long colorvram)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "COLORVRAM=0x%08x\n", colorvram);
+
     if (colorvram != pNewport->shadow_colorvram)
     {
 	NewportWaitIdle(pNewport, 1);
@@ -459,6 +471,9 @@ NewportUpdateCOLORVRAM(NewportPtr pNewport, unsigned long colorvram)
 static void
 NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "COLORBACK=0x%08x\n", colorback);
+
     if (colorback != pNewport->shadow_colorback)
     {
 	NewportWaitIdle(pNewport, 1);
@@ -481,6 +496,9 @@ NewportUpdateCOLORBACK(NewportPtr pNewport, unsigned long colorback)
 static void
 NewportUpdateWRMASK(NewportPtr pNewport, unsigned long wrmask)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "WRMASK=0x%08x\n", wrmask);
+
     if (wrmask != pNewport->shadow_wrmask)
     {
 	NewportWaitIdle(pNewport, 1);
@@ -503,6 +521,9 @@ NewportUpdateWRMASK(NewportPtr pNewport, unsigned long wrmask)
 static void
 NewportUpdateXYMOVE(NewportPtr pNewport, unsigned long xymove)
 {
+    NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_SETUP_REGIO,
+        "XYMOVE=0x%08x\n", xymove);
+
     if (xymove != pNewport->shadow_xymove)
     {
 	NewportWaitIdle(pNewport, 1);
@@ -625,7 +646,9 @@ static Bool
 NewportAccelCheckFastClear(NewportPtr pNewport, int rop, int Color,
     unsigned int planemask)
 {
-#if 0
+	if (pNewport->enable_fastfill == FALSE)
+		return FALSE;
+
 	/* First - rop needs to be copy, clear, set */
 	if (rop != GXcopy && rop != GXclear && rop != GXset)
 		return FALSE;
@@ -647,7 +670,7 @@ NewportAccelCheckFastClear(NewportPtr pNewport, int rop, int Color,
 	 * will clip our colours to, if it wouldn't be dithered then
 	 * do a solid fill.
 	 */
-#endif
+
 	/* Otherwise - no fast fill */
 	return FALSE;
 }
@@ -673,18 +696,21 @@ NewportXAASetupForSolidFill(ScrnInfoPtr pScrn,
     /* if possible try to set up a fast clear which is 4x faster */
     if (NewportAccelCheckFastClear(pNewport, rop, Color, planemask))
     {
+        NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: FASTFILL\n", __func__);
 	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1
 	    | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
 	if (rop == GXclear)
 	    NewportUpdateCOLORVRAM(pNewport, 0);
 	else
 	if (rop == GXset)
-	    NewportUpdateCOLORVRAM(pNewport, 0xFFFFFF);
+	    NewportUpdateCOLORVRAM(pNewport, 0xFFFFFF); /* XXX should this be going via Color2Planes_Color() ? Since for 8bpp its too many bits? */
 	else
             NewportUpdateCOLORVRAM(pNewport, pNewport->Color2Planes_Color((unsigned int)Color));
     }
     else
     {
+
+	/* It looks like there's something not quite right here during black fills turning red, let's figure it out! */
 	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1 | Rop2LogicOp(rop));
 	NewportUpdateCOLORI(pNewport, NewportColor2HOSTRW(Color));
     }
@@ -1443,6 +1469,7 @@ NewportPolyPoint(DrawablePtr pDraw,
     /* if possible try to set up a fast clear which is 4x faster */
     if (NewportAccelCheckFastClear(pNewport, rop, pGC->fgPixel, pGC->planemask))
     {
+        NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: FASTFILL\n", __func__);
 	NewportUpdateDRAWMODE1(pNewport, pNewport->setup_drawmode1
 	    | NPORT_DMODE1_FCLR | Rop2LogicOp(GXcopy));
 	if (rop == GXclear)
@@ -1597,6 +1624,7 @@ NewportValidatePolyArc(GCPtr pGC,
 
     if (pDraw->type == DRAWABLE_WINDOW)   
     {
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: setting Newport routines\n", __func__);
 	pGC->ops->PolyPoint = NewportPolyPoint;
 	/*pGC->ops->PolyArc = miPolyArc;*/
 	pGC->ops->PolyArc = NewportPolyArc;
@@ -1604,6 +1632,7 @@ NewportValidatePolyArc(GCPtr pGC,
     }
     else
     {
+    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: setting fallback routines\n", __func__);
 	pGC->ops->PolyPoint = XAAGetFallbackOps()->PolyPoint;
 	pGC->ops->PolyArc = XAAGetFallbackOps()->PolyArc;
     }

@@ -48,6 +48,8 @@
 #define	NEWPORT_DBG_SHADOWFB_CALLS		0x00000001
 #define	NEWPORT_DBG_SHADOWFB_REGIONS		0x00000002
 #define	NEWPORT_DBG_ACCEL_CALLS			0x00000004
+#define	NEWPORT_DBG_ACCEL_SETUP_REGIO		0x00000008
+#define	NEWPORT_DBG_ACCEL_RUN_REGIO		0x00000010
 
 #define NEWPORT_DPRINTF(p, m, ...) \
 	do { \
@@ -96,6 +98,7 @@ typedef struct {
 	unsigned int debug_mask;
 
 	Bool enable_dithering;		/* Enable dithering for framebuffer 8/4 bit pixel formats */
+	Bool enable_fastfill;		/* Enable fast-fill where possible */
 
 	/* ShadowFB stuff: */
 	CARD32* ShadowPtr;
