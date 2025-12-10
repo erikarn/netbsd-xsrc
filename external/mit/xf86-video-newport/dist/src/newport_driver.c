@@ -170,6 +170,7 @@ typedef enum {
 	OPTION_XMAP_TIMING,
 	OPTION_DEBUG_MASK,
 	OPTION_ENABLE_DITHERING,
+	OPTION_ENABLE_FASTFILL,
 } NewportOpts;
 
 /* Supported options */
@@ -181,6 +182,7 @@ static const OptionInfoRec NewportOptions [] = {
 	{ OPTION_XMAP_TIMING, "XmapTiming", OPTV_INTEGER, {0}, FALSE },
 	{ OPTION_DEBUG_MASK, "DebugMask", OPTV_INTEGER, {0}, FALSE },
 	{ OPTION_ENABLE_DITHERING, "EnableDithering", OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_ENABLE_FASTFILL, "EnableFastFill", OPTV_BOOLEAN, {0}, FALSE },
 	{ -1, NULL, OPTV_NONE, {0}, FALSE }
 };
 
@@ -644,6 +646,19 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
 		    "Defaulting to 8/4 bit FB pixel dithering enabled\n");
 	}
+
+	/* Parse the fast-fill option */
+	pNewport->enable_fastfill = TRUE;
+	if (xf86GetOptValBool(pNewport->Options, OPTION_ENABLE_FASTFILL,
+	    &pNewport->enable_fastfill)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "Accel FASTFILL %s\n",
+		    pNewport->enable_fastfill ? "Enabled" : "Disabled");
+	} else {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+		    "Defaulting to Accel FASTFILL enabled\n");
+	}
+
 
 	/* map the Newportregs until the server dies */
 	if( ! NewportMapRegs(pScrn)) 
