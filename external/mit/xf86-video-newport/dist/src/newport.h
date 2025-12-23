@@ -210,6 +210,7 @@ void NewportCmapSetRGB( NewportRegsPtr pNewportRegs, unsigned short addr, LOCO c
 /* newport_shadow.c */
 void NewportRefreshArea8(ScrnInfoPtr pScrn, int num, BoxPtr pbox);
 void NewportRefreshArea24(ScrnInfoPtr pScrn, int num, BoxPtr pbox);
+void NewportRefreshAreaAccel(ScrnInfoPtr pScrn, int num, BoxPtr pbox);
 
 /* newport_cursor.c */
 Bool NewportHWCursorInit(ScreenPtr pScreen);
