@@ -769,8 +769,24 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	}
 
 	/*
-	 * Note if XAA is setup, then the shadow FB isn't used?
-	 * Is this .. correct?
+	 * The shadow framebuffer is still capturing writes for
+	 * updates that the XAA framework doesn't support.
+	 * (eg I think the SHAPES extension isn't being accelerated.)
+	 *
+	 * However, the way newport currently works doesn't really allow
+	 * us to cheaply keep this in sync - newport acceleration is
+	 * issuing commands directly into the framebuffer, and we are not
+	 * constantly copying those regions back into the shadow framebuffer.
+	 * (Nor would we want to!)
+	 *
+	 * Unfortunately this means if something draws into the shadow
+	 * framebuffer when acceleration is enabled there's just no neat
+	 * way to draw it back into the newport window as it won't have
+	 * any of the other drawn data available.
+	 *
+	 * So for now register a callback for updates when acceleration
+	 * is enabled so it can be tracked through the configurable driver
+	 * debug framework.
 	 */
 	if (pNewport->NoAccel) {
 		/* Initialise shadow frame buffer */
@@ -778,7 +794,13 @@ NewportScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 		    (pNewport->Bpp == 1) ? &NewportRefreshArea8 :
 		    &NewportRefreshArea24)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "ShadowFB initialization failed\n");
+			   "ShadowFB (noaccel) initialization failed\n");
+			return FALSE;
+		}
+	} else {
+		if(!ShadowFBInit(pScreen, &NewportRefreshAreaAccel)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "ShadowFB (accel) initialization failed\n");
 			return FALSE;
 		}
 	}
