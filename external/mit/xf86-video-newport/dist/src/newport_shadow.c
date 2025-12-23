@@ -124,3 +124,32 @@ NewportRefreshArea24(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 	    "%s: finished\n", __func__);
 }
 
+/*
+ * Callback to update a list of boxes that have been directly drawn
+ * into.
+ *
+ * This captures whatever regions are being drawn by the X server which
+ * aren't being routed via an XAA call.  This is here to help debug
+ * when that happens so perhaps the missing acceleration functionality
+ * may be added.
+ */
+void
+NewportRefreshAreaAccel(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
+{
+	int dx, dy;
+	NewportPtr pNewport = NEWPORTPTR(pScrn);
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: called; num=%d\n", __func__, num);
+
+
+	while(num--) {
+		NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_REGIONS,
+		    "%s: --> x1=%d y1=%d x2=%d y2=%d\n",
+		    __func__, pbox->x1, pbox->y1, pbox->x2, pbox->y2);
+		pbox++;
+	}
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_SHADOWFB_CALLS,
+	    "%s: finished\n", __func__);
+}
