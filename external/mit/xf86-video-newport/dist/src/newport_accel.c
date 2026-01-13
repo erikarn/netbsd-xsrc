@@ -1449,6 +1449,9 @@ NewportXAADisableClipping(ScrnInfoPtr pScrn)
  * the average/min/max fill is and how many points are passed
  * in; that'd give us a good idea as to whether these would
  * benefit by being turned into DMA and save some CPU resources.
+ *
+ * TODO: why's the region fill first doing it using fgPixel?
+ * with an alu of 0x3 (set) ?
  */
 static void
 NewportPolyPoint(DrawablePtr pDraw,
@@ -1545,6 +1548,44 @@ NewportPolyPoint(DrawablePtr pDraw,
     }
 }
 
+static void
+NewportFallbackPolyArc(DrawablePtr pDraw, GCPtr pGC, int narcs, xArc *parcs)
+{
+	XAAInfoRecPtr infoRec;
+	ScrnInfoPtr pScrn;
+	NewportPtr pNewport;
+
+	infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
+	pScrn = infoRec->pScrn;
+	pNewport = NEWPORTPTR(pScrn);
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_UNACCEL_CHECK,
+	    "%s: called\n", __func__);
+	XAAGetFallbackOps()->PolyArc(pDraw, pGC, narcs, parcs);
+}
+
+static void
+NewportFallbackPolyPoint(DrawablePtr pDraw, GCPtr pGC, int mode, int npt,
+    xPoint *ppt)
+{
+	XAAInfoRecPtr infoRec;
+	ScrnInfoPtr pScrn;
+	NewportPtr pNewport;
+
+	infoRec = GET_XAAINFORECPTR_FROM_GC(pGC);
+	pScrn = infoRec->pScrn;
+	pNewport = NEWPORTPTR(pScrn);
+
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_UNACCEL_CHECK,
+	    "%s: called\n", __func__);
+	XAAGetFallbackOps()->PolyPoint(pDraw, pGC, mode, npt, ppt);
+}
+
+
+
+
+
+
 /*******************************************************************************
 
 *******************************************************************************/
@@ -1571,7 +1612,8 @@ NewportValidatePolyPoint(GCPtr pGC,
     }
     else
     {
-	pGC->ops->PolyPoint = XAAGetFallbackOps()->PolyPoint;
+	//pGC->ops->PolyPoint = XAAGetFallbackOps()->PolyPoint;
+	pGC->ops->PolyPoint = NewportFallbackPolyPoint;
     }
 }
 
@@ -1579,6 +1621,11 @@ NewportValidatePolyPoint(GCPtr pGC,
 /*******************************************************************************
 
 *******************************************************************************/
+
+/*
+ * Note: NewportPolyArc() is actually calling the mi*() routines here.
+ * Is this one of the sources of shadow fb updates?
+ */
 static void
 NewportPolyArc(DrawablePtr pDraw,
                GCPtr pGC,
@@ -1603,6 +1650,9 @@ NewportPolyArc(DrawablePtr pDraw,
         "%s: called; narcs=%d, num regions=%d\n",
         __func__, narcs, REGION_NUM_RECTS(cclip));
 
+	NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_UNACCEL_CHECK,
+	    "%s: called\n", __func__);
+
     if(!REGION_NUM_RECTS(cclip))
 	return;
 
@@ -1624,6 +1674,7 @@ NewportPolyArc(DrawablePtr pDraw,
 }
 #endif
 
+
 /*******************************************************************************
 
 *******************************************************************************/
@@ -1644,19 +1695,45 @@ NewportValidatePolyArc(GCPtr pGC,
         "%s: called; changes=0x%08x, type=%d\n",
         __func__, changes, pDraw->type);
 
+
+    /*
+     * What is GCOps ? (ie pGC->ops)
+     *
+     * The XAA howto doesn't entirely document what the Validate
+     * routines are used for, so I'm going to need to deep dive into
+     * this a bunch more.
+     *
+     * But I am wondering whether there are some pixmap operations
+     * here which aren't being accelerated and the fallback is what's
+     * drawing into the shadow framebuffer / not being rendered on the
+     * screen.  So I wonder whether stubbing a bunch more of these
+     * to see what's being called would be enlightening?
+     */
+
     if (pDraw->type == DRAWABLE_WINDOW)   
     {
-    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: setting Newport routines\n", __func__);
+        NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_UNACCEL_CHECK,
+	    "%s: setting Newport routines\n", __func__);
 	pGC->ops->PolyPoint = NewportPolyPoint;
 	/*pGC->ops->PolyArc = miPolyArc;*/
 	pGC->ops->PolyArc = NewportPolyArc;
+	// polylines ?
+	// polysegment?
+	// polyrectangle?
+
+	// polyfillrect?
+	// polyfillarc?
+	// pushpuxels?
 	
     }
     else
     {
-    NEWPORT_ACCEL_DEBUGMSG(pNewport, "%s: setting fallback routines\n", __func__);
-	pGC->ops->PolyPoint = XAAGetFallbackOps()->PolyPoint;
-	pGC->ops->PolyArc = XAAGetFallbackOps()->PolyArc;
+        NEWPORT_DPRINTF(pNewport, NEWPORT_DBG_ACCEL_UNACCEL_CHECK,
+           "%s: setting fallback routines\n", __func__);
+//	pGC->ops->PolyPoint = XAAGetFallbackOps()->PolyPoint;
+//	pGC->ops->PolyArc = XAAGetFallbackOps()->PolyArc;
+	pGC->ops->PolyPoint = NewportFallbackPolyPoint;
+	pGC->ops->PolyArc = NewportFallbackPolyArc;
     }
 }
 
@@ -2024,7 +2101,9 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 				      ;
 	pXAAInfoRec->SetupForSolidFill = NewportXAASetupForSolidFill;
 	pXAAInfoRec->SubsequentSolidFillRect = NewportXAASubsequentSolidFillRect;
-	
+	// XXX SubsequentSolidFillTrap ?
+
+
 	/* solid lines */
 	pXAAInfoRec->SolidLineFlags = 0
 	                              ;
@@ -2072,8 +2151,13 @@ NewportXAAScreenInit(ScreenPtr pScreen)
 						     
 	pXAAInfoRec->SetupForMono8x8PatternFill	= NewportXAASetupForMono8x8PatternFill;
 	pXAAInfoRec->SubsequentMono8x8PatternFillRect = NewportXAASubsequentMono8x8PatternFillRect;
+	// XXX SubsequentMono8x8PatternFillTrap ?
 
 	/* TODO: no colour 8x8 fill */
+
+	// XXX SetupForColor8x8PatternFill ?
+	// XXX SubsequentColor8x8PatternFillRect ?
+	// XXX SubsequentColor8x8PatternFillTrap ?
 
 	/* Image write */
 	pXAAInfoRec->ImageWriteFlags = 0
